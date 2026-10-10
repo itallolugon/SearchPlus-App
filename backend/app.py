@@ -272,6 +272,12 @@ def _carregar_modelos_de_fato() -> None:
     tempo_seq = time.time() - start_time_seq
     print("Sequencial:", tempo_seq)
 
+    # As chamadas do Pool acima rodam em processos filhos: cada um ativa o
+    # Claude na própria memória e termina levando o cliente junto. Sem esta
+    # chamada, o processo que atende as requisições ficava com CLAUDE_OK = False
+    # — sem descrição de imagem e sem re-rank da busca.
+    _iniciar_claude()
+
     # CLIP: busca visual direta (texto↔imagem no mesmo espaço vetorial).
     # Dois modelos: encoder de texto multilingual + encoder de imagem original.
     # Total ~1.1GB no primeiro download. Rode uma vez com SEARCHPLUS_OFFLINE=0.
@@ -849,12 +855,16 @@ def init_db() -> None:
         conn.close()
 
 
-# Garante que as tabelas existam ao carregar o módulo (idempotente)
-try:
-    init_db()
-    print("[DB] Schema verificado.")
-except Exception as _db_exc:
-    print(f"[DB] ERRO na inicialização: {_db_exc}")
+# Garante que as tabelas existam ao carregar o módulo (idempotente).
+# Só no processo principal, como o pool de conexões: nos processos filhos do
+# Pool o pool é None, e a tentativa imprimia "[DB] ERRO na inicialização" a
+# cada boot — um falso alarme sobre um banco que estava funcionando.
+if current_process().name == "MainProcess":
+    try:
+        init_db()
+        print("[DB] Schema verificado.")
+    except Exception as _db_exc:
+        print(f"[DB] ERRO na inicialização: {_db_exc}")
 
 
 @app.errorhandler(psycopg2.errors.UndefinedTable)

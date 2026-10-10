@@ -1,0 +1,58 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Segredos e configuração local — NUNCA COMMITAR
+# ─────────────────────────────────────────────────────────────────────────────
+# Credenciais (Postgres/Supabase, Anthropic). Modelo em backend/.env.example.
+.env
+backend/.env
+# Chave de sessão gerada no primeiro boot (assina o cookie de login)
+backend/.secret_key
+# Preferências de usuário salvas fora do banco. No repositório anterior este
+# arquivo chegou a levar nome, foto e caminhos de pasta pessoais ao histórico.
+config.json
+
+# Ferramentas de assistente (configuração e notas locais)
+.claude/
+CLAUDE.md
+# Relatório de auditoria (local, não versionado)
+AUDITORIA.md
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Python
+# ─────────────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+.Python
+.venv/
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Modelos de IA e dados locais
+# ─────────────────────────────────────────────────────────────────────────────
+# Pesos dos modelos (~1 GB) vêm do cache do HuggingFace, nunca do repositório.
+local_models/
+*.bin
+*.sqlite3
+*.db
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Testes, cobertura e lint (todos reconstruíveis)
+# ─────────────────────────────────────────────────────────────────────────────
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+relatorios/
+.mypy_cache/
+.ruff_cache/
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Logs e resíduos de sistema operacional
+# ─────────────────────────────────────────────────────────────────────────────
+*.log
+.DS_Store
+Thumbs.db
+desktop.ini

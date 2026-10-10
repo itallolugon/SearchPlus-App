@@ -34,7 +34,7 @@ Pra conferir se deu certo:
   PASSO 2 — COPIAR A PASTA DO PROJETO
 ------------------------------------------------------------
 
-1. Copie a pasta "SearchPlus_Prototipo" do pendrive/drive para o seu
+1. Copie a pasta "SearchPlus-App" do pendrive/drive para o seu
    computador (ex: para a Área de Trabalho ou para Documentos).
 2. NÃO rode direto do pendrive — copie pro PC primeiro (fica mais rápido).
 
@@ -42,7 +42,7 @@ Pra conferir se deu certo:
   PASSO 3 — INSTALAR O QUE O APP PRECISA (só na primeira vez)
 ------------------------------------------------------------
 
-1. Abra a pasta "SearchPlus_Prototipo" que você copiou.
+1. Abra a pasta "SearchPlus-App" que você copiou.
 2. Na barra de endereço da pasta (em cima, onde mostra o caminho),
    clique, apague tudo, digite  cmd  e aperte Enter.
    → Isso abre o Prompt de Comando já dentro da pasta certa.
@@ -57,7 +57,7 @@ Pra conferir se deu certo:
   PASSO 4 — LIGAR O APP
 ------------------------------------------------------------
 
-1. Dentro da pasta "SearchPlus_Prototipo", procure o arquivo:
+1. Dentro da pasta "SearchPlus-App", procure o arquivo:
 
    rodar.bat
 

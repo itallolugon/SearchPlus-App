@@ -22,7 +22,6 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import unquote
-from multiprocessing import Pool, current_process
 
 import psycopg2
 import psycopg2.errors
@@ -77,13 +76,13 @@ _CLAUDE = None
 CLAUDE_OK = False
 # Modelo usado tanto para descrever imagens quanto para julgar a busca.
 # Pode ser trocado no .env (CLAUDE_MODEL) sem mexer no código.
-CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "").strip() or "claude-opus-5"
+CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "").strip() or "claude-sonnet-5-5"
 # O `import anthropic` custa ~3s sozinho. Como nada dele é preciso para o
 # servidor atender, ele sai daqui e vai para a carga em segundo plano, junto
 # dos modelos — ver _carregar_modelos().
 
 
-def _iniciar_claude(indice=None) -> None:
+def _iniciar_claude() -> None:
     global _CLAUDE, CLAUDE_OK
     try:
         import anthropic as _anthropic
@@ -254,28 +253,6 @@ def _carregar_modelos_de_fato() -> None:
     except ImportError as _e:
         SKLEARN_OK = False
         print(f"[AI] scikit-learn indisponível: {_e}")
-    start_time_seq = time.time()
-    print("Iniciando tarefas sequenciais...")
-    
-    with Pool(4) as p:
-        results = p.map(_iniciar_claude, range(4))
-    #_iniciar_claude()
-    #print ("Claude iniciado.")
-    #_iniciar_claude()
-    #print ("Claude iniciado.")
-    #_iniciar_claude()
-    #print ("Claude iniciado.")
-    #_iniciar_claude()
-    #print ("Claude iniciado.")
-
-
-    tempo_seq = time.time() - start_time_seq
-    print("Sequencial:", tempo_seq)
-
-    # As chamadas do Pool acima rodam em processos filhos: cada um ativa o
-    # Claude na própria memória e termina levando o cliente junto. Sem esta
-    # chamada, o processo que atende as requisições ficava com CLAUDE_OK = False
-    # — sem descrição de imagem e sem re-rank da busca.
     _iniciar_claude()
 
     # CLIP: busca visual direta (texto↔imagem no mesmo espaço vetorial).
@@ -304,8 +281,7 @@ def iniciar_carga_dos_modelos() -> None:
                      name="carga-modelos").start()
 
 
-if current_process().name == "MainProcess":
-    iniciar_carga_dos_modelos()
+iniciar_carga_dos_modelos()
 
 # ── BM25: busca por palavra-chave (complemento ao SBERT) ────────────────────
 try:
@@ -690,11 +666,8 @@ def _rerank_com_claude(query: str, candidatos: list[dict], topk: int = 15) -> li
 _POOL_MAX = max(4, int(os.environ.get("DB_POOL_MAX", "20")))
 _POOL_TIMEOUT = float(os.environ.get("DB_POOL_TIMEOUT", "10"))
 
-if current_process().name == "MainProcess":
-    _pg_pool = pg_pool.ThreadedConnectionPool(1, _POOL_MAX, dsn=DATABASE_URL)
-    print(f"[DB] Pool Postgres pronto ({DATABASE_URL.split('@')[-1]}, máx {_POOL_MAX} conexões)")
-else:
-    _pg_pool = None
+_pg_pool = pg_pool.ThreadedConnectionPool(1, _POOL_MAX, dsn=DATABASE_URL)
+print(f"[DB] Pool Postgres pronto ({DATABASE_URL.split('@')[-1]}, máx {_POOL_MAX} conexões)")
 
 def _pegar_conexao_do_pool():
     """
@@ -855,16 +828,12 @@ def init_db() -> None:
         conn.close()
 
 
-# Garante que as tabelas existam ao carregar o módulo (idempotente).
-# Só no processo principal, como o pool de conexões: nos processos filhos do
-# Pool o pool é None, e a tentativa imprimia "[DB] ERRO na inicialização" a
-# cada boot — um falso alarme sobre um banco que estava funcionando.
-if current_process().name == "MainProcess":
-    try:
-        init_db()
-        print("[DB] Schema verificado.")
-    except Exception as _db_exc:
-        print(f"[DB] ERRO na inicialização: {_db_exc}")
+# Garante que as tabelas existam ao carregar o módulo (idempotente)
+try:
+    init_db()
+    print("[DB] Schema verificado.")
+except Exception as _db_exc:
+    print(f"[DB] ERRO na inicialização: {_db_exc}")
 
 
 @app.errorhandler(psycopg2.errors.UndefinedTable)

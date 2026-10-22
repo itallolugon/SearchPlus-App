@@ -249,7 +249,7 @@ class TestBuscaAntesDosModelos:
             corpo = client_logado.post("/api/search", json={"query": "cachorro"}).get_json()
 
         assert corpo.get("carregando") is None
-        assert "rodar.bat" in corpo["erro"]
+        assert "internet" in corpo["erro"]
 
     def test_nenhuma_mensagem_cita_nome_de_modelo(self, client_logado, db_roteado, app_module):
         """A mensagem antiga dizia "SBERT indisponível" para o usuário final."""

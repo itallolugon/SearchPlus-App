@@ -45,11 +45,9 @@ jobs:
       - name: Formatação do código de teste (bloqueante)
         run: ruff format --check tests/
 
-      # backend/ é código legado e compartilhado com produção; o AGENTS.md pede
-      # que não seja alterado por conveniência. O lint roda para dar visibilidade
-      # dos achados, sem barrar a entrega de quem não os introduziu.
-      - name: Lint do backend (informativo)
-        continue-on-error: true
+      # Bloqueante desde que os achados pré-existentes foram zerados: com o
+      # backend limpo, só barra quem introduz um problema novo.
+      - name: Lint do backend (bloqueante)
         run: ruff check backend/
 
   # ───────────────────────────────────────────────────────────────────────────

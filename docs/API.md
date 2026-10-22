@@ -113,7 +113,7 @@ O detalhe que costuma custar meia manhã de debug: `localhost:5173` e `localhost
 | `403` | Arquivo fora das pastas monitoradas |
 | `404` | Recurso não encontrado |
 | `409` | Conflito (usuário ou coleção já existe) |
-| `503` | Schema restaurado; a resposta traz `"retry": true` — vale repetir a chamada |
+| `503` | Schema restaurado (`"retry": true`) ou modelos de busca ainda carregando / indisponíveis (`"carregando"`) — ver cada endpoint |
 
 **Sucesso** normalmente traz `{"status": "ok"}`, às vezes com dados extras.
 
@@ -540,9 +540,9 @@ O endpoint principal.
 
 Máximo de 60 resultados. Já vêm ordenados por `score` decrescente; itens com score ≤ 0.25 são cortados.
 
-Se a busca semântica estiver indisponível, a resposta ainda é `200`, mas com um campo `erro`:
+Se a busca por texto não estiver pronta, a resposta é `503` com `resultados` vazio e um `erro` legível. Com `"carregando": true` os modelos ainda estão subindo e vale tentar de novo em instantes; sem `carregando`, o modelo não subiu (ver [`GET /api/health`](#get-apihealth)):
 ```json
-{ "resultados": [], "tempo": 0, "erro": "SBERT indisponível — busca semântica desligada." }
+{ "resultados": [], "tempo": 0, "carregando": true, "erro": "Ainda estou preparando a busca. ..." }
 ```
 
 > ⏱️ **Latência:** de 1 a 8 segundos na API real. A busca é síncrona e pode chamar o modelo de IA duas vezes (descrever imagens novas + reordenar). **Projete um estado de carregamento decente** — não é uma chamada de 200ms. O mock simula ~250ms.
@@ -1117,7 +1117,7 @@ O `403` é proposital: só arquivos dentro das pastas monitoradas do próprio us
 
 Abre o Explorer do Windows com o arquivo selecionado. Roda **no servidor**.
 
-→ `{"status": "ok"}` · `400` caminho vazio · `403` fora das pastas monitoradas
+→ `{"status": "ok"}` · `400` caminho vazio ou com byte nulo · `403` fora das pastas monitoradas
 · `404` não existe · `501` fora do Windows
 
 Só abre arquivo dentro de uma **pasta monitorada do usuário** — a mesma regra

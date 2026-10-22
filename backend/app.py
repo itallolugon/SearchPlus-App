@@ -18,7 +18,6 @@ import threading
 import time
 import unicodedata
 from collections import deque
-from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import unquote
@@ -112,7 +111,7 @@ except ImportError:
 
 # numpy fica aqui: custa 0,3s e é usado em vários pontos.
 try:
-    import numpy as np
+    import numpy as np  # noqa: F401 -- pré-carga; as funções importam localmente
     NUMPY_OK = True
 except ImportError:
     NUMPY_OK = False
@@ -126,11 +125,50 @@ except ImportError:
 cosine_similarity = None
 SKLEARN_OK = False
 
-# Força uso do cache local por padrão — evita timeouts de rede ao checar arquivos no HuggingFace.
-# Para baixar modelos pela primeira vez, rode com: SEARCHPLUS_OFFLINE=0 py backend/app.py
-if os.environ.get("SEARCHPLUS_OFFLINE", "1") == "1":
+# Modelos usados pela busca, como aparecem no cache do HuggingFace.
+_MODELOS_HF = (
+    "paraphrase-multilingual-MiniLM-L12-v2",
+    "clip-ViT-B-32-multilingual-v1",
+    "clip-ViT-B-32",
+)
+
+
+def _pasta_cache_hf() -> Path:
+    """Mesma regra de localização que o huggingface_hub usa."""
+    if os.environ.get("HF_HUB_CACHE"):
+        return Path(os.environ["HF_HUB_CACHE"])
+    home = os.environ.get("HF_HOME") or os.path.join(os.path.expanduser("~"), ".cache", "huggingface")
+    return Path(home) / "hub"
+
+
+def _modelos_no_cache(raiz: Path) -> bool:
+    return all(
+        (Path(raiz) / f"models--sentence-transformers--{nome}" / "snapshots").is_dir()
+        for nome in _MODELOS_HF
+    )
+
+
+def _modo_offline(valor_env, modelos_no_cache: bool) -> bool:
+    """
+    Offline evita que cada boot consulte o HuggingFace (e trave sem rede). Mas
+    offline com o cache vazio sobe o app com a busca desligada — o que acontecia
+    em todo clone novo até alguém lembrar de rodar com SEARCHPLUS_OFFLINE=0.
+    Sem a variável definida, a decisão é pelo cache: só vai à rede se faltar
+    modelo. "1" e "0" continuam forçando um lado.
+    """
+    valor = (valor_env or "").strip()
+    if valor == "1":
+        return True
+    if valor == "0":
+        return False
+    return modelos_no_cache
+
+
+if _modo_offline(os.environ.get("SEARCHPLUS_OFFLINE"), _modelos_no_cache(_pasta_cache_hf())):
     os.environ.setdefault("HF_HUB_OFFLINE", "1")
     os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
+else:
+    print("[AI] Modelos ainda não estão no cache — baixando na primeira execução (~1,6 GB).")
 
 try:
     from PIL import Image as _PILImage
@@ -257,7 +295,7 @@ def _carregar_modelos_de_fato() -> None:
 
     # CLIP: busca visual direta (texto↔imagem no mesmo espaço vetorial).
     # Dois modelos: encoder de texto multilingual + encoder de imagem original.
-    # Total ~1.1GB no primeiro download. Rode uma vez com SEARCHPLUS_OFFLINE=0.
+    # Total ~1,6 GB no primeiro download, feito sozinho quando o cache está vazio.
     try:
         if not PIL_OK:
             raise ImportError("Pillow não instalado (pip install Pillow).")
@@ -666,7 +704,31 @@ def _rerank_com_claude(query: str, candidatos: list[dict], topk: int = 15) -> li
 _POOL_MAX = max(4, int(os.environ.get("DB_POOL_MAX", "20")))
 _POOL_TIMEOUT = float(os.environ.get("DB_POOL_TIMEOUT", "10"))
 
-_pg_pool = pg_pool.ThreadedConnectionPool(1, _POOL_MAX, dsn=DATABASE_URL)
+def _mensagem_falha_banco(exc) -> str:
+    """
+    Traduz a falha de conexão do boot em causa provável + onde mexer.
+
+    Nunca repete o texto do erro: o psycopg2 às vezes inclui a DSN inteira,
+    com a senha, na mensagem.
+    """
+    texto = str(exc).lower()
+    if "password authentication failed" in texto:
+        return ("A senha do banco foi recusada. Confira a DATABASE_URL em backend/.env "
+                "— a senha pode ter sido trocada no painel do Supabase.")
+    if "could not translate host name" in texto:
+        return ("O endereço do banco não foi encontrado. Use a URL do Session pooler "
+                "do Supabase (ver backend/.env.example) e confira a internet.")
+    if "timeout" in texto or "timed out" in texto or "connection refused" in texto:
+        return "O banco não respondeu. Confira a internet e tente de novo."
+    return ("Não foi possível conectar ao banco. Confira a DATABASE_URL em "
+            "backend/.env e a internet.")
+
+
+try:
+    _pg_pool = pg_pool.ThreadedConnectionPool(1, _POOL_MAX, dsn=DATABASE_URL)
+except psycopg2.OperationalError as _exc_pool:
+    print(f"\n[DB] {_mensagem_falha_banco(_exc_pool)}\n")
+    raise SystemExit(1) from None
 print(f"[DB] Pool Postgres pronto ({DATABASE_URL.split('@')[-1]}, máx {_POOL_MAX} conexões)")
 
 def _pegar_conexao_do_pool():
@@ -1066,7 +1128,7 @@ def api_register():
         conn = get_db()
     except Exception as exc:
         print(f"[DB] Falha ao conectar: {exc}")
-        return jsonify({"mensagem": f"Erro ao conectar ao banco: {exc}"}), 500
+        return jsonify({"mensagem": "Não foi possível conectar ao banco de dados. Verifique a internet e tente de novo."}), 500
 
     try:
         conn.execute(
@@ -1096,10 +1158,10 @@ def api_register():
             return jsonify({"mensagem": "Este usuário já existe."}), 409
         except Exception as exc2:
             print(f"[DB] Falha após recriar schema: {exc2}")
-            return jsonify({"mensagem": f"Erro interno: {exc2}"}), 500
+            return jsonify({"mensagem": "Não foi possível criar a conta agora. Tente de novo em instantes."}), 500
     except Exception as exc:
         print(f"[DB] Erro no registro: {exc}")
-        return jsonify({"mensagem": f"Erro interno: {exc}"}), 500
+        return jsonify({"mensagem": "Não foi possível criar a conta agora. Tente de novo em instantes."}), 500
     finally:
         conn.close()
 
@@ -1429,9 +1491,9 @@ def api_estimate_time():
     if not uid:
         return jsonify({"estimativa_minutos": 0, "total_imagens": 0})
 
+    # `perfil` e `foco` chegam na query, mas não mudam a conta: a indexação só
+    # gera o embedding CLIP; o perfil pesa na descrição, feita depois, na busca.
     pasta  = request.args.get("pasta", "").strip()
-    perfil = request.args.get("perfil", "fast")
-    foco   = request.args.get("foco", "tudo")
 
     if not pasta or not os.path.isdir(pasta):
         return jsonify({"estimativa_minutos": 0, "total_imagens": 0})
@@ -1442,7 +1504,7 @@ def api_estimate_time():
     t_inicio = time.time()
     count = 0
     truncado = False
-    for root, _, filenames in os.walk(pasta):
+    for _root, _, filenames in os.walk(pasta):
         if (time.time() - t_inicio) > LIMITE_TEMPO_S or count >= LIMITE_ARQUIVOS:
             truncado = True
             break
@@ -1583,7 +1645,9 @@ def api_choose_image():
 
         return jsonify({"status": "sucesso", "caminho": path, "data_url": data_url})
     except Exception as exc:
-        return jsonify({"status": "erro", "mensagem": str(exc)})
+        print(f"[Seletor] Falha ao escolher imagem: {exc}")
+        return jsonify({"status": "erro",
+                        "mensagem": "Não foi possível abrir o seletor de imagens. Tente de novo."})
 
 
 @app.route("/api/choose_folder")
@@ -1596,7 +1660,9 @@ def api_choose_folder():
             return jsonify({"status": "sucesso", "pasta": path})
         return jsonify({"status": "cancelado"})
     except Exception as exc:
-        return jsonify({"status": "erro", "mensagem": str(exc)})
+        print(f"[Seletor] Falha ao escolher pasta: {exc}")
+        return jsonify({"status": "erro",
+                        "mensagem": "Não foi possível abrir o seletor de pastas. Tente de novo."})
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1617,7 +1683,7 @@ _STOPWORDS_PT = {
     "mostrar", "mostre", "ver", "encontrar", "achar", "buscar", "procurar",
     "foto", "fotos", "imagem", "imagens", "arquivo", "arquivos", "tem", "ter",
     "algum", "alguma", "qualquer", "todo", "toda", "tudo", "nada",
-    "eu", "tu", "nos", "vos",
+    "eu", "tu", "vos",
 }
 
 # Termos de busca por PESSOA humana (sem acentos)
@@ -2199,8 +2265,8 @@ def api_search():
         return jsonify({
             "resultados": [], "tempo": 0,
             "erro": "A busca por texto não está disponível. Feche o programa "
-                    "e abra de novo; se continuar, rode o rodar.bat uma vez "
-                    "com a internet conectada.",
+                    "e abra de novo com a internet conectada — ele baixa "
+                    "sozinho o que estiver faltando.",
         }), 503
 
     q = _analisar_query(query)
@@ -2399,7 +2465,8 @@ def api_search():
         candidatas_sem_desc.sort(key=lambda idx: clip_sims[idx], reverse=True)
         for i in candidatas_sem_desc[:5]:
             f = rows[i]
-            desc_nova = _descrever_imagem_on_demand(f["caminho"], f["nome"])
+            desc_nova = _descrever_imagem_on_demand(
+                f["caminho"], f["nome"], folder_id=f["folder_id"], uid=uid)
             if desc_nova:
                 # Atualiza em memória (pra esta busca) e salva no banco (cache).
                 rows[i]["descricao_ia"] = desc_nova
@@ -2409,7 +2476,8 @@ def api_search():
                     emb_nova = _gerar_embedding(_texto_para_embedding(desc_nova))
                     if emb_nova is not None and query_emb is not None:
                         import numpy as np
-                        a = np.array([emb_nova]); b = np.array([query_emb])
+                        a = np.array([emb_nova])
+                        b = np.array([query_emb])
                         sbert_sims[i] = max(0.0, float(cosine_similarity(a, b)[0][0]))
                 corpus_tokens[i] = _tokenizar((desc_nova or "") + " " + (f["nome"] or ""))
         # BM25 depende do corpus inteiro — recalcula se alguma imagem foi descrita
@@ -2431,7 +2499,7 @@ def api_search():
     def _filtrar_e_pontuar(threshold_sbert: float) -> list:
         out = []
         for i, (f, s_sbert, s_bm25, s_clip, s_visual) in enumerate(zip(
-                rows, sbert_sims, bm25_sims, clip_sims, clip_norm)):
+                rows, sbert_sims, bm25_sims, clip_sims, clip_norm, strict=True)):
             desc_local      = (f["descricao_ia"] or "").strip()
             desc_norm_local = _normalizar(desc_local)
 
@@ -2569,15 +2637,14 @@ def api_search_by_image():
                         "Tente de novo em instantes.",
             }), 503
         return jsonify({
-            "erro": "A busca por imagem não está disponível. Rode o rodar.bat "
-                    "uma vez com a internet conectada para baixar o que falta.",
+            "erro": "A busca por imagem não está disponível. Feche o programa e "
+                    "abra de novo com a internet conectada para baixar o que falta.",
         }), 503
 
     data = request.get_json(force=True) or {}
     file_id = data.get("file_id")
     data_url = data.get("data_url")
 
-    import numpy as np
     query_vec = None
 
     if file_id:
@@ -2597,7 +2664,8 @@ def api_search_by_image():
 
     elif data_url:
         # Decodifica base64 → arquivo temporário → embedding CLIP → apaga
-        import base64, tempfile
+        import base64
+        import tempfile
         try:
             cabecalho, _, b64 = data_url.partition(",")
             raw = base64.b64decode(b64 or cabecalho)
@@ -5834,6 +5902,10 @@ def api_open_location():
     bruto = unquote(request.args.get("path", "")).strip()
     if not bruto:
         return jsonify({"error": "Caminho não informado."}), 400
+    # Nenhum caminho real tem byte nulo. No Linux o realpath abaixo estoura
+    # com ValueError ao encontrá-lo, e a recusa virava um 500.
+    if "\x00" in bruto:
+        return jsonify({"error": "Caminho inválido."}), 400
 
     filepath = os.path.realpath(bruto)
 
@@ -6836,16 +6908,20 @@ def _analyze_image(filepath: str, *, prioridades=None, perfil="fast") -> str:
     return desc or f"Imagem: {os.path.basename(filepath)}"
 
 
-def _descrever_imagem_on_demand(caminho: str, nome: str) -> str | None:
+def _descrever_imagem_on_demand(caminho: str, nome: str, *, folder_id=None, uid=None) -> str | None:
     """Descreve UMA imagem com o Claude na hora da busca (modo lazy).
     Usada quando a imagem foi indexada só com embedding CLIP, sem descrição.
-    Se o arquivo sumiu do disco ou a API falhar, retorna None."""
+    Se o arquivo sumiu do disco ou a API falhar, retorna None.
+
+    O modo (Relâmpago/Profundo) e o foco vêm da pasta da imagem: com a
+    indexação lazy, é aqui que essas escolhas da pessoa têm efeito."""
     if not CLAUDE_OK:
         return None
     if not os.path.isfile(caminho):
         return None
-    prompt = _build_prompt_visao(["tudo"])
-    desc = _analyze_image_claude(caminho, prompt, perfil="fast")
+    prioridades, perfil, _janela = _get_folder_config(folder_id, uid)
+    prompt = _build_prompt_visao(prioridades)
+    desc = _analyze_image_claude(caminho, prompt, perfil=perfil)
     if desc:
         print(f"[Lazy] Descrita sob demanda: {nome}")
     return desc

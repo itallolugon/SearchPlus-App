@@ -882,8 +882,8 @@ async function acompanharPreparoDaBusca() {
             } else {
                 const motivo = (d.modelos && d.modelos.texto && d.modelos.texto.estado) || '';
                 if (motivo === 'indisponivel') {
-                    toastErro('A busca por texto não subiu. Feche o programa e abra de novo; ' +
-                              'se continuar, rode o rodar.bat uma vez com a internet conectada.');
+                    toastErro('A busca por texto não subiu. Feche o programa e abra de novo ' +
+                              'com a internet conectada — ele baixa sozinho o que faltar.');
                 }
             }
         } catch (e) {
@@ -3433,7 +3433,7 @@ function renderizarResultados() {
         const sel = _selecionados.has(r.id);
         const selBtn = `<button type="button" class="btn-sel-abs${sel ? ' is-sel' : ''}" role="checkbox" aria-checked="${sel}" aria-label="Selecionar para coleção" title="Selecionar para coleção" onclick="alternarSelecao(event, ${r.id}, this)">${sel ? iconeHTML('check') : ''}</button>`;
 
-        return `<div class="card${sel ? ' card-selecionado' : ''}" data-file-id="${r.id}" data-idx="${idx}" data-resumo="${_resumo.replace(/"/g, '&quot;')}" onclick="abrirPainelLateral(${idx})">${selBtn}${favBtn}<div class="media-container">${midia}</div><div class="card-content"><h3>${r.nome}</h3><div class="tags"><span class="badge type">${ext.toUpperCase()}</span>${badgeDeOrigem(r.origem)}</div>${trecho}</div></div>`;
+        return `<div class="card${sel ? ' card-selecionado' : ''}" data-file-id="${r.id}" data-idx="${idx}" data-resumo="${_resumo.replace(/"/g, '&quot;')}" onclick="abrirPainelLateral(${idx})">${selBtn}${favBtn}<div class="media-container">${midia}</div><div class="card-content"><h3>${_attr(r.nome)}</h3><div class="tags"><span class="badge type">${ext.toUpperCase()}</span>${badgeDeOrigem(r.origem)}</div>${trecho}</div></div>`;
     };
 
     mGrid.innerHTML = ordenados.map(buildCard).join('');
@@ -3697,7 +3697,7 @@ async function carregarFavoritos() {
                             onclick="alternarSelecao(event, ${r.id}, this)">${marcado ? iconeHTML('check') : ''}</button>
                     ${thumbHtml}
                     <div class="fav-info">
-                        <strong>${r.nome}</strong>
+                        <strong>${_attr(r.nome)}</strong>
                         <span>${ext.toUpperCase()}</span>
                         <span>Adicionado: ${dataAdd}</span>
                     </div>
@@ -4614,16 +4614,6 @@ function avisarToggle(nome, ativado) {
 }
 
 // ==========================================
-// MENU LATERAL (navegação hamburguer)
-// ==========================================
-function fecharMenuLateral() {
-    const ml = document.getElementById('menuLateral');
-    if (!ml) return;
-    ml.classList.remove('aberto');
-    document.getElementById('menuOverlay').classList.remove('aberto');
-}
-
-// ==========================================
 // MODAL DE AJUDA
 // ==========================================
 function abrirAjuda() {
@@ -4981,10 +4971,6 @@ document.addEventListener('keydown', (e) => {
 document.addEventListener('keydown', (e) => {
     // Esc: fecha o modal/painel aberto mais relevante
     if (e.key === 'Escape') {
-        // Menu lateral aberto? fecha ele primeiro
-        const ml = document.getElementById('menuLateral');
-        if (ml && ml.classList.contains('aberto')) { fecharMenuLateral(); return; }
-
         // Qualquer modal aberto, sem lista para manter. A versão anterior
         // enumerava os modais um a um, e nasceu cobrindo 14 dos 23 — os outros
         // nove ficaram sem tecla de fechar, sem ninguém perceber.
@@ -6421,7 +6407,7 @@ function _nomeDaPasta(caminho) {
 async function _erroDaResposta(r, padrao) {
     if (r.status === 405 || r.status === 404) {
         return 'O servidor está desatualizado e não conhece esta função. ' +
-               'Feche a janela do servidor e rode o rodar.bat de novo.';
+               'Feche a janela do servidor e ligue de novo (py backend/app.py).';
     }
     let d = {};
     try { d = await r.json(); } catch (e) { /* resposta não-JSON: usa o padrão */ }

@@ -15,7 +15,7 @@ ficam aqui — os mesmos que o CI executa, para que "passou local" signifique
     banco         os que exigem Postgres com pgvector
     cobertura     testes + relatório HTML de cobertura
     observar      re-executa os testes a cada alteração de arquivo
-    lint          ruff nos testes (bloqueante) e no backend (informativo)
+    lint          ruff nos testes e no backend (bloqueante, como no CI)
     formatar      aplica o formatador nos testes
     tipos         verificação de tipos (informativa)
     build         compila os módulos e confere os arquivos do frontend
@@ -118,8 +118,7 @@ def observar() -> int:
 def lint() -> int:
     codigo = _rodar(PY + ["-m", "ruff", "check", "tests/"], "Lint dos testes")
     codigo |= _rodar(PY + ["-m", "ruff", "format", "--check", "tests/"], "Formatação dos testes")
-    # Informativo: backend/ é legado e o AGENTS.md pede para não alterá-lo.
-    _rodar(PY + ["-m", "ruff", "check", "backend/"], "Lint do backend (informativo)")
+    codigo |= _rodar(PY + ["-m", "ruff", "check", "backend/"], "Lint do backend")
     return codigo
 
 

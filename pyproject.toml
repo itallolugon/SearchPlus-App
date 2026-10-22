@@ -48,9 +48,9 @@ omit = [
 ]
 
 [tool.coverage.report]
-# 43% é piso, não meta: a suíte mede 45% hoje e a folga evita quebrar o CI por
-# flutuação de uma linha. Não é 70% porque metade de app.py é I/O que só roda
-# com infraestrutura real — pgvector, API da Anthropic, modelos de 1 GB, diálogos
+# 64% é piso, não meta: a suíte mede ~67% hoje e a folga absorve a diferença
+# entre Windows e o Linux do CI. Não é mais porque boa parte de app.py é I/O que
+# só roda com infraestrutura real — pgvector, API da Anthropic, modelos de 1 GB, diálogos
 # do tkinter, o worker em thread. O que dava para cobrir sem inventar teste está
 # coberto: regras de busca, parsing da descrição, caminhos, autenticação,
 # allowlist de estáticos e os endpoints de dados.
@@ -58,7 +58,7 @@ omit = [
 # docs/TESTING.md lista módulo a módulo o que ficou de fora e o que é preciso
 # para cobrir. Suba este número quando a cobertura subir de verdade — nunca
 # fabricando teste para mover a porcentagem.
-fail_under = 43
+fail_under = 64
 show_missing = true
 skip_covered = false
 exclude_lines = [

@@ -31,7 +31,7 @@ Três documentos, três finalidades:
 | [docs/API.md](docs/API.md) | Contrato de cada endpoint: payload, resposta, erros |
 | `index.html`, `script.js`, `style.css` | O protótipo atual — especificação viva do comportamento |
 
-**Explore o aplicativo rodando antes de reescrever.** O protótipo já resolve fluxos que nenhum documento captura por completo: separação dos resultados em faixas de relevância, painel lateral de detalhe, onboarding de pastas, galeria por categoria. O visual é livre; as funcionalidades não.
+**Explore o aplicativo rodando antes de reescrever.** O protótipo já resolve fluxos que nenhum documento captura por completo: etiqueta de por que cada resultado apareceu, refinamento dentro do resultado anterior, painel lateral de detalhe, onboarding de pastas, galeria por categoria. O visual é livre; as funcionalidades não.
 
 ---
 

@@ -8,7 +8,7 @@ skinparam actorStyle awesome
 actor "Usuário" as U
 
 ' Atores secundários (sistemas externos)
-actor "Ollama\n(IA local)" as IA
+actor "API Anthropic\n(Claude)" as IA
 actor "Supabase\n(PostgreSQL)" as DB
 
 rectangle "Search+" {
@@ -39,6 +39,9 @@ rectangle "Search+" {
   usecase "Gerenciar coleções" as UC17
   usecase "Ver galeria\npor categoria" as UC18
   usecase "Ver estatísticas\ndo acervo" as UC19
+  usecase "Exportar coleção\npara pasta" as UC20
+  usecase "Vincular pasta\nà coleção" as UC21
+  usecase "Restaurar da lixeira" as UC22
 }
 
 ' Relações do usuário
@@ -61,13 +64,19 @@ U --> UC16
 U --> UC17
 U --> UC18
 U --> UC19
+U --> UC20
+U --> UC21
+U --> UC22
 
-' A análise depende da IA (Ollama) e persiste no banco
-UC8 ..> IA : <<include>>\ndescreve imagem
+' Indexação lazy: indexar só gera embeddings locais (CLIP/SBERT) e grava no
+' banco. A IA de visão entra na BUSCA, descrevendo as imagens candidatas
+' ainda sem descrição e julgando quais resultados correspondem.
 UC8 ..> DB : <<include>>\nsalva embedding
 UC12 ..> DB : <<include>>\nbusca vetorial
-UC13 ..> IA : <<include>>\nembedding visual
-UC13 ..> DB : <<include>>\nbusca vetorial
+UC12 ..> IA : <<include>>\ndescreve candidatas\ne julga relevância
+UC13 ..> DB : <<include>>\nbusca vetorial (CLIP)
+UC17 <.. UC20 : <<extend>>
+UC17 <.. UC21 : <<extend>>
 
 ' Login é pré-requisito das funcionalidades internas
 UC2 <.. UC7 : <<extend>>

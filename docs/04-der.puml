@@ -1,6 +1,7 @@
 @startuml DER_SearchPlus
 ' Diagrama Entidade-Relacionamento — Search+
 ' Banco: PostgreSQL hospedado no Supabase (com extensão pgvector)
+' Fonte da verdade: backend/schema.sql (9 tabelas)
 ' Renderize em: https://www.plantuml.com/plantuml
 hide circle
 skinparam linetype ortho
@@ -41,6 +42,9 @@ entity "files" as files {
   data_adicionado : TIMESTAMPTZ
   favorito : INTEGER
   processado : INTEGER
+  mtime : DOUBLE PRECISION
+  tamanho : BIGINT
+  ausente_em : TIMESTAMPTZ
   --
   UNIQUE (user_id, caminho)
 }
@@ -51,6 +55,9 @@ entity "collections" as collections {
   * user_id : INTEGER <<FK>>
   * nome : TEXT
   criado_em : TIMESTAMPTZ
+  capa_file_id : INTEGER
+  pasta_vinculada : TEXT
+  * modo_sync : TEXT
   --
   UNIQUE (user_id, nome)
 }
@@ -62,13 +69,63 @@ entity "collection_files" as cf {
   adicionado_em : TIMESTAMPTZ
 }
 
+entity "collection_folders" as cfo {
+  * id : SERIAL <<PK>>
+  --
+  * collection_id : INTEGER <<FK>>
+  * user_id : INTEGER <<FK>>
+  * caminho : TEXT
+  criado_em : TIMESTAMPTZ
+  * recebe : BOOLEAN
+  --
+  UNIQUE (collection_id, caminho)
+}
+
+entity "exportacoes" as exp {
+  * id : SERIAL <<PK>>
+  --
+  * user_id : INTEGER <<FK>>
+  collection_id : INTEGER <<FK>>
+  * colecao : TEXT
+  * pasta : TEXT
+  * total : INTEGER
+  * copiados : INTEGER
+  * falhas : JSONB
+  * estado : TEXT
+  quando : TIMESTAMPTZ
+}
+
+entity "lixeira" as lix {
+  * id : SERIAL <<PK>>
+  --
+  * user_id : INTEGER <<FK>>
+  * tipo : TEXT
+  * rotulo : TEXT
+  * conteudo : JSONB
+  excluido_em : TIMESTAMPTZ
+}
+
+entity "resumos_indexacao" as res {
+  * id : SERIAL <<PK>>
+  --
+  * user_id : INTEGER <<FK>>
+  * inicio : TIMESTAMPTZ
+  fim : TIMESTAMPTZ
+  * conteudo : JSONB
+}
+
 ' Relacionamentos (cardinalidade)
 users ||--o{ folders       : "1:N  (ON DELETE CASCADE)"
 users ||--o{ files         : "1:N  (ON DELETE CASCADE)"
 users ||--o{ collections   : "1:N  (ON DELETE CASCADE)"
+users ||--o{ exp           : "1:N  (ON DELETE CASCADE)"
+users ||--o{ lix           : "1:N  (ON DELETE CASCADE)"
+users ||--o{ res           : "1:N  (ON DELETE CASCADE)"
 folders ||--o{ files       : "1:N  (ON DELETE SET NULL)"
 collections ||--o{ cf      : "1:N  (ON DELETE CASCADE)"
 files ||--o{ cf            : "1:N  (ON DELETE CASCADE)"
+collections ||--o{ cfo     : "1:N  (ON DELETE CASCADE)"
+collections |o--o{ exp     : "1:N  (ON DELETE SET NULL)"
 
 note bottom of cf
   Tabela associativa (N:N) entre
@@ -80,6 +137,19 @@ note right of files
   embedding / embedding_clip usam a
   extensão pgvector (busca por
   similaridade com índice HNSW).
+  ausente_em marca o arquivo que sumiu
+  do disco, sem apagar o registro.
+end note
+
+note bottom of lix
+  Retrato da coleção excluída (mesmo id,
+  itens e pastas) — restaurável por 30 dias.
+end note
+
+note bottom of exp
+  O nome da coleção fica gravado: o
+  histórico continua válido mesmo depois
+  que a coleção é excluída (SET NULL).
 end note
 
 @enduml

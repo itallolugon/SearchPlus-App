@@ -51,7 +51,7 @@ não é PWA, não é SPA com framework.
 | Frontend | `index.html` + `script.js` + `style.css`. HTML/CSS/JS puro, sem framework, sem *build step*. | `README.md`, ausência de `package.json` |
 | Backend | Flask (Python) em `http://127.0.0.1:5000`, que **serve o próprio frontend** e expõe a API. | `backend/app.py:701`, `script.js:5` |
 | Banco | Postgres + pgvector, hospedado no Supabase (nuvem). | `backend/schema.sql`, `backend/.env` |
-| Inicialização | `rodar.bat` → `py backend/app.py` | `COMO_RODAR.txt` |
+| Inicialização | `py backend/app.py` (na época, via `rodar.bat`, hoje removido) | `COMO_RODAR.txt` |
 
 O detalhe decisivo: **o processo Python roda na máquina do usuário**. Ele tem
 o mesmo acesso ao sistema de arquivos que o usuário logado no Windows. Duas

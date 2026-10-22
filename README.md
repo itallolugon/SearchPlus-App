@@ -78,7 +78,7 @@ Guia completo para colocar o Search+ funcionando numa máquina nova (Windows). E
 
 ## Passo 1 — Instalar o Python
 
-1. Baixe em [python.org/downloads](https://www.python.org/downloads/) (versão 3.10 ou mais nova).
+1. Baixe em [python.org/downloads](https://www.python.org/downloads/) (versão 3.11 ou mais nova).
 2. Ao abrir o instalador, **marque a caixa "Add Python to PATH"** na primeira tela. Sem isso, os comandos não funcionam.
 3. Clique em *Install Now*.
 
@@ -149,9 +149,13 @@ Leva alguns minutos e imprime bastante texto — é normal. Isso instala o Flask
 
 ## Passo 5 — Ligar o app
 
-Dê **dois cliques em `rodar.bat`** (ou rode `py backend/app.py` no terminal).
+No Prompt de Comando, dentro da pasta do projeto:
 
-Na **primeira execução**, o app baixa os modelos de embedding (SBERT e CLIP, cerca de **1,6 GB**). Isso acontece uma única vez — nas próximas ele carrega do cache local.
+```bat
+py backend/app.py
+```
+
+Na **primeira execução**, o app percebe que os modelos de embedding (SBERT e CLIP, cerca de **1,6 GB**) ainda não estão no computador e os baixa sozinho. Isso acontece uma única vez — nas próximas ele carrega do cache local, sem rede.
 
 Quando o terminal mostrar as linhas abaixo, está tudo funcionando:
 
@@ -163,7 +167,7 @@ Quando o terminal mostrar as linhas abaixo, está tudo funcionando:
   Search+ Backend iniciado!
 ```
 
-O navegador abre sozinho em **http://127.0.0.1:5000**. Se não abrir, digite esse endereço manualmente. **Mantenha a janela do terminal aberta** — ela é o servidor; fechá-la desliga o app.
+Abra **http://127.0.0.1:5000** no navegador. **Mantenha a janela do terminal aberta** — ela é o servidor; fechá-la desliga o app.
 
 ## Passo 6 — Usar
 
@@ -174,7 +178,7 @@ O navegador abre sozinho em **http://127.0.0.1:5000**. Se não abrir, digite ess
 
 A **primeira busca** por um assunto novo demora alguns segundos, porque o Claude está descrevendo as imagens candidatas naquele momento. As buscas seguintes usam o cache e respondem em cerca de 1 segundo.
 
-Para desligar, feche a janela do terminal. Para religar, basta rodar o `rodar.bat` de novo — os passos 1, 3 e 4 são só da primeira vez.
+Para desligar, feche a janela do terminal (ou `Ctrl+C`). Para religar, rode `py backend/app.py` de novo — os passos 1, 3 e 4 são só da primeira vez.
 
 ---
 
@@ -187,7 +191,7 @@ Para desligar, feche a janela do terminal. Para religar, basta rodar o `rodar.ba
 | `ANTHROPIC_API_KEY não encontrada no .env` | O arquivo não existe, está no lugar errado (precisa ser `backend/.env`) ou a chave tem espaço/aspas. |
 | Busca funciona, mas imagens não são descritas | Chave inválida ou sem crédito. Confira em *Billing* no console da Anthropic. |
 | Erro de conexão com o banco | `DATABASE_URL` incorreta, ou o computador está sem internet. |
-| O download dos modelos falha | Rode com `SEARCHPLUS_OFFLINE=0` (o `rodar.bat` já faz isso) e verifique a conexão. |
+| A busca não sobe depois de um download interrompido | Verifique a conexão e rode uma vez com `set SEARCHPLUS_OFFLINE=0` antes do `py backend/app.py`, que força o app a conferir os modelos na rede. |
 
 ---
 
@@ -198,7 +202,6 @@ SearchPlus-App/
 ├── index.html          # Interface (SPA — todas as telas num arquivo)
 ├── style.css           # Estilos
 ├── script.js           # Lógica do frontend (sem framework)
-├── rodar.bat           # Atalho para ligar o servidor no Windows
 ├── dev.py              # Atalhos: testes, lint, cobertura, carga
 ├── fonts/              # Fontes locais
 ├── landing/            # Página de apresentação do produto (estática)
@@ -229,7 +232,7 @@ py dev.py testes
 py dev.py cobertura
 ```
 
-São 297 testes em ~6 segundos, cobrindo as regras de busca, o parsing da
+São 846 testes em ~11 segundos, cobrindo as regras de busca, o parsing da
 descrição da IA, o tratamento de caminhos, a autenticação, a allowlist de
 arquivos estáticos e os endpoints de dados. Há ainda testes de carga (Locust) e
 um pipeline de CI no GitHub Actions.

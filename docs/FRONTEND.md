@@ -112,7 +112,7 @@ O protótipo atual já resolve estes fluxos. Use-o rodando como especificação 
 - Campo de busca com histórico (`GET`/`POST /api/search_history`)
 - Filtro por tipo: tudo / imagens / documentos / mídia
 - Filtros avançados: intervalo de datas, pasta, tamanho em MB
-- **Resultados em duas faixas:** "Melhores" (score ≥ 0.60) e "Semânticos" (o resto)
+- **Resultados numa lista única**, já ordenada por `score`, cada um com a etiqueta do motivo do acerto (campo `origem`: aparência, descrição, texto do documento ou nome); exclusão com `-palavra` e "buscar dentro destes" (`escopo`)
 - **Estado de carregamento obrigatório** — a busca real leva de 1 a 8 segundos
 - Busca por imagem: enviar arquivo ou partir de um resultado existente (`POST /api/search_by_image`)
 

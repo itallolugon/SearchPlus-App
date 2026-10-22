@@ -262,11 +262,11 @@ produto.
 Encontrados durante a análise. **Nenhum é causado pelas features novas**, mas
 todos são tocados por elas e devem ser conhecidos antes da implementação.
 
-| # | Débito | Onde | Gravidade |
-|---|---|---|---|
-| 1 | `/api/open_location` não valida o caminho recebido antes de passá-lo ao `explorer`. Diferente de `/api/file`, que valida. | `backend/app.py:3037` | **Alta** (segurança) |
-| 2 | `GET /api/collections` faz N+1 consultas para montar as capas em mosaico. | `backend/app.py:2508` | Média (performance) |
-| 3 | `renderizarResultados()` reconstrói todo o grid via `innerHTML`, o que destrói qualquer estado de DOM — inclusive o de seleção. | `script.js:1666` | Média (bloqueia RF-019) |
-| 4 | `setInterval(buscarStatus, 2000)` nunca é interrompido, nem sem sessão ativa. | `script.js:2323` | Baixa |
-| 5 | Cobertura de acessibilidade quase nula: um `aria-label` em todo o `index.html`. | `index.html` | Média |
-| 6 | `/api/choose_folder` devolve `str(exc)` cru ao frontend. | `backend/app.py:1358` | Baixa |
+| # | Débito | Onde | Gravidade | Situação em 21/10/2026 |
+|---|---|---|---|---|
+| 1 | `/api/open_location` não valida o caminho recebido antes de passá-lo ao `explorer`. Diferente de `/api/file`, que valida. | `backend/app.py:3037` | **Alta** (segurança) | ✅ Corrigido: só abre dentro das pastas do usuário, com `realpath` (`test_open_location.py`) |
+| 2 | `GET /api/collections` faz N+1 consultas para montar as capas em mosaico. | `backend/app.py:2508` | Média (performance) | ✅ Corrigido: uma consulta com `ROW_NUMBER()` (`test_consulta_capas.py`) |
+| 3 | `renderizarResultados()` reconstrói todo o grid via `innerHTML`, o que destrói qualquer estado de DOM — inclusive o de seleção. | `script.js:1666` | Média (bloqueia RF-019) | ◐ Contornado: a seleção vive num `Set` em memória e sobrevive à reconstrução |
+| 4 | `setInterval(buscarStatus, 2000)` nunca é interrompido, nem sem sessão ativa. | `script.js:2323` | Baixa | ⏳ Aberto (sem sessão a rota devolve vazio, sem vazar dados) |
+| 5 | Cobertura de acessibilidade quase nula: um `aria-label` em todo o `index.html`. | `index.html` | Média | ◐ Melhorado: 45 `aria-label` no `index.html`, além dos gerados pelo JS |
+| 6 | `/api/choose_folder` devolve `str(exc)` cru ao frontend. | `backend/app.py:1358` | Baixa | ✅ Corrigido: mensagem acionável ao usuário, detalhe só no log (`test_erros_sem_detalhe_interno.py`) |

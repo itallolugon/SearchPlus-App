@@ -91,10 +91,10 @@ py dev.py cobertura
 ```
 
 Abre `htmlcov/index.html` para navegar linha a linha. O piso configurado é
-**43%** e a suíte mede **45%**.
+**64%** e a suíte mede **~67%** (21/10/2026).
 
-Não é 70% por um motivo concreto, não por preguiça: `backend/app.py` tem ~3.400
-linhas e cerca de metade é I/O que só executa com infraestrutura real.
+Não é mais por um motivo concreto, não por preguiça: `backend/app.py` tem ~7.000
+linhas e boa parte é I/O que só executa com infraestrutura real.
 
 **Coberto** — a lógica que decide o comportamento do produto:
 
@@ -277,7 +277,7 @@ manual (botão "Run workflow").
 | Job | O que faz | Barra a entrega? |
 |---|---|---|
 | `qualidade` | Lint e formatação dos testes | Sim |
-| | Lint do backend | Não — informativo |
+| | Lint do backend | Sim |
 | `testes` | Unitários + integração + cobertura | Sim |
 | `testes-com-banco` | Integração com Postgres efêmero | Não bloqueia o portão |
 | `build` | Compila os módulos, confere o frontend | Sim |
@@ -287,10 +287,9 @@ manual (botão "Run workflow").
 
 `portao` existe para que a proteção de branch precise exigir **um** check só.
 
-O lint do backend é informativo de propósito: `backend/` é compartilhado com
-produção e o `AGENTS.md` pede que não seja alterado por conveniência. Os 11
-achados atuais são pré-existentes; quem abre uma PR de frontend não deveria ser
-barrado por eles. Ao corrigi-los, promova o passo a bloqueante.
+O lint do backend passou a ser bloqueante em 21/10/2026, quando os achados
+pré-existentes foram zerados. Como o backend está limpo, uma PR só é barrada
+por ele se introduzir um problema novo.
 
 ### Artefatos
 
@@ -359,7 +358,8 @@ irmã, duplicata por caixa e exclusão levando subpasta junto.
    Anthropic dublado no limite da rede. É a maior lacuna de cobertura.
 2. **`_process_worker`**, extraindo o corpo do loop para uma função testável.
    Já morreu em produção por causa de um byte NUL.
-3. **Frontend.** `script.js` tem ~2.700 linhas sem teste nenhum. Vitest com
+3. **Frontend.** `script.js` tem ~7.000 linhas sem teste de comportamento
+   (há só verificações estáticas, como `test_escape_nomes_front.py`). Vitest com
    jsdom cobriria `renderizarResultados()` e os mapas de categoria — mas
    introduz Node num projeto que hoje não depende dele; decida conscientemente.
 4. **Concorrência do pool** sob carga, para achar o limite real de `DB_POOL_MAX`.

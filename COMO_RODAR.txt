@@ -37,6 +37,9 @@ Pra conferir se deu certo:
 1. Copie a pasta "SearchPlus-App" do pendrive/drive para o seu
    computador (ex: para a Área de Trabalho ou para Documentos).
 2. NÃO rode direto do pendrive — copie pro PC primeiro (fica mais rápido).
+3. Confira se dentro da pasta "backend" existe o arquivo  .env
+   (ele guarda o acesso ao banco e à IA). Sem ele o app não liga —
+   peça para quem te passou a pasta. Nunca compartilhe esse arquivo.
 
 ------------------------------------------------------------
   PASSO 3 — INSTALAR O QUE O APP PRECISA (só na primeira vez)
@@ -57,20 +60,22 @@ Pra conferir se deu certo:
   PASSO 4 — LIGAR O APP
 ------------------------------------------------------------
 
-1. Dentro da pasta "SearchPlus-App", procure o arquivo:
+1. Abra o Prompt de Comando dentro da pasta "SearchPlus-App"
+   (mesmo jeito do Passo 3: barra de endereço → digite  cmd  → Enter).
+2. Digite este comando e aperte Enter:
 
-   rodar.bat
+   py backend/app.py
 
-2. Dê DOIS CLIQUES nele.
-3. Vai abrir uma janela preta com textos — NÃO FECHE essa janela
+3. Vão aparecer vários textos — NÃO FECHE essa janela
    (ela é o "motor" do app; fechar desliga tudo).
-4. Na PRIMEIRA vez, ele baixa os modelos de IA (uns 1,6 GB) — pode
-   demorar uns minutos. Tenha paciência, é só na primeira vez.
-5. Quando aparecer  "Search+ Backend iniciado!"  e o navegador abrir
-   sozinho em  http://127.0.0.1:5000  — está funcionando! 🎉
+4. Na PRIMEIRA vez, ele baixa sozinho os modelos de IA (uns 1,6 GB) —
+   pode demorar uns minutos. Tenha paciência, é só na primeira vez.
+5. Quando aparecer  "Search+ Backend iniciado!" , abra o Chrome ou o
+   Edge e digite na barra de endereço:
 
-   (Se o navegador não abrir sozinho, abra o Chrome/Edge e digite
-    na barra de endereço:  127.0.0.1:5000  )
+   127.0.0.1:5000
+
+   Pronto, está funcionando! 🎉
 
 ------------------------------------------------------------
   PASSO 5 — USAR
@@ -94,7 +99,8 @@ Pra conferir se deu certo:
 ------------------------------------------------------------
 
 É só fechar a janela preta (a do "motor"). Pronto.
-Pra ligar de novo: dê dois cliques no  rodar.bat  outra vez.
+Pra ligar de novo: repita o Passo 4 (abrir o cmd na pasta e digitar
+py backend/app.py).
 (Não precisa repetir os passos 1 e 3 — só na primeira vez.)
 
 ------------------------------------------------------------
@@ -109,8 +115,9 @@ Pra ligar de novo: dê dois cliques no  rodar.bat  outra vez.
 
 • "Erro de conexão" no app → confira se o computador está com internet.
 
-• Não abre nada no navegador → abra manualmente e digite na barra:
-  127.0.0.1:5000
+• O navegador diz que não conseguiu acessar → confira se a janela
+  preta continua aberta e se apareceu "Search+ Backend iniciado!".
+  Depois digite de novo na barra:  127.0.0.1:5000
 
 ============================================================
   Qualquer dúvida, chama o Itallo. Bom uso do Search+! 🔍

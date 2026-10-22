@@ -21,6 +21,10 @@ O DER em PlantUML está em [`04-der.puml`](04-der.puml). Resumo das entidades:
 | **files** | Arquivos indexados, com a descrição da IA e os vetores de busca |
 | **collections** | Coleções (playlists) criadas pelo usuário |
 | **collection_files** | Tabela associativa N:N entre `collections` e `files` |
+| **collection_folders** | Pastas do computador geradas/vinculadas a uma coleção (`recebe` = destino das novas imagens) |
+| **exportacoes** | Histórico de exportações, com as falhas de cada uma para repetir só elas |
+| **lixeira** | Retrato das coleções excluídas, restaurável por 30 dias |
+| **resumos_indexacao** | Resumo de cada rodada de indexação (o que entrou, o que falhou e por quê) |
 
 ### Relacionamentos
 - `users 1—N folders` (ON DELETE CASCADE)
@@ -28,6 +32,9 @@ O DER em PlantUML está em [`04-der.puml`](04-der.puml). Resumo das entidades:
 - `users 1—N collections` (ON DELETE CASCADE)
 - `folders 1—N files` (ON DELETE SET NULL — apagar a pasta não apaga o arquivo)
 - `collections N—N files` (via `collection_files`)
+- `collections 1—N collection_folders` (ON DELETE CASCADE)
+- `collections 1—N exportacoes` (ON DELETE SET NULL — o histórico sobrevive à coleção)
+- `users 1—N exportacoes`, `lixeira`, `resumos_indexacao` (ON DELETE CASCADE)
 
 O DDL completo e versionado está em [`../backend/schema.sql`](../backend/schema.sql),
 e é aplicado automaticamente pelo backend na primeira execução (`init_db()`).
@@ -42,7 +49,8 @@ que cumpre o papel de mapeamento objeto-relacional de forma leve:
 
 ### Pool de conexões + wrapper (`backend/app.py`)
 ```python
-_pg_pool = pg_pool.ThreadedConnectionPool(1, 10, dsn=DATABASE_URL)
+_POOL_MAX = max(4, int(os.environ.get("DB_POOL_MAX", "20")))
+_pg_pool = pg_pool.ThreadedConnectionPool(1, _POOL_MAX, dsn=DATABASE_URL)
 
 class _PooledConnection:
     """Devolve a conexão ao pool no .close() em vez de fechá-la.
@@ -69,6 +77,10 @@ class _PooledConnection:
 | files | read, update (indexação), busca vetorial | `/api/search`, `/api/search_by_image` |
 | collections | CRUD | `/api/collections`, `/api/collections/<id>` |
 | collection_files | add, remove | `/api/collections/<id>/files` |
+| collection_folders | read, rename, delete | `/api/collections/<id>/folders`, `/api/collections/<id>/sync` |
+| exportacoes | create, read, repetir | `/api/collections/<id>/export`, `/api/exportacoes` |
+| lixeira | create (ao excluir), restore, delete | `/api/lixeira` |
+| resumos_indexacao | create (fim da rodada), read | `/api/resumo_indexacao` |
 
 > Caso a disciplina exija um ORM "nominal", o mapeamento acima pode ser portado
 > para SQLAlchemy declarando uma classe por tabela — mas a equipe optou pelo

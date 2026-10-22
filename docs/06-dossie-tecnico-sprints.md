@@ -1,20 +1,31 @@
 # Dossiê Técnico de Sprint — Search+
 
-Projeto: **Search+** — busca semântica de imagens e documentos com IA local.
+Projeto: **Search+** — busca semântica de imagens e documentos com IA.
 Abordagem: **SQL** (PostgreSQL/Supabase + pgvector).
-Repositório: https://github.com/itallolugon/SearchPlus_Prototipo
+Repositório atual: https://github.com/itallolugon/SearchPlus-App
+(os commits citados nas sprints são do repositório anterior,
+`itallolugon/SearchPlus_Prototipo`).
+
+> **Registro histórico.** As sprints abaixo descrevem o projeto como era na
+> época: a descrição de imagens usava LLaVA e o re-rank usava Llama 3.2, ambos
+> locais via Ollama. Depois disso a IA de visão e o julgamento de relevância
+> passaram para a API do Claude, com indexação lazy (a descrição só acontece na
+> busca). As tabelas foram mantidas como aconteceram; o estado atual está no
+> [`README.md`](../README.md) e no [`RELATORIO.md`](../RELATORIO.md).
 
 ---
 
-## Visão geral do produto
+## Visão geral do produto (estado atual)
 
-Aplicação web que indexa pastas do computador, descreve cada imagem com IA
-(LLaVA via Ollama), gera embeddings semânticos e permite buscar os arquivos em
-linguagem natural ("cachorro na grama") ou por imagem (achar parecidas).
+Aplicação web que indexa pastas do computador gerando embeddings locais (CLIP
+para imagens, SBERT para o texto dos documentos) e permite buscar os arquivos em
+linguagem natural ("cachorro na grama") ou por imagem (achar parecidas). Na
+busca, o Claude descreve as imagens candidatas que ainda não têm descrição e
+julga quais resultados correspondem de verdade.
 
 **Stack:** Frontend (HTML/CSS/JS puro) · Backend (Flask/Python) ·
-Banco (PostgreSQL/Supabase + pgvector) · IA local (Ollama: LLaVA + Llama 3.2,
-SBERT, CLIP).
+Banco (PostgreSQL/Supabase + pgvector) · Embeddings locais (SBERT, CLIP) ·
+IA de visão e re-rank via API (Claude).
 
 ---
 

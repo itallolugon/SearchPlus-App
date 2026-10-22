@@ -3,7 +3,14 @@
 Esta pasta reúne os artefatos de modelagem e documentação exigidos para a N2.
 Abordagem da equipe: **SQL (PostgreSQL/Supabase)**.
 
-## Índice dos artefatos
+## Documentação técnica (PMI IV · 2026/2)
+
+[`PDF_Preenchido_Projeto.pdf`](PDF_Preenchido_Projeto.pdf) — as 24 seções do
+modelo de documentação técnica da disciplina, preenchidas a partir do código,
+desta pasta e da execução dos testes: arquitetura, requisitos, banco, API,
+instalação, testes, segurança, limitações e responsáveis.
+
+## Índice dos artefatos (N2)
 
 | Arquivo | Entrega do professor |
 |---|---|
@@ -37,6 +44,7 @@ Documentos fora do escopo da N2, produzidos ao longo do desenvolvimento.
 | [`features/12-colecoes-exportacao.md`](features/12-colecoes-exportacao.md) | Seleção, coleções e exportação para pasta local |
 | [`features/13-selecao-em-massa.md`](features/13-selecao-em-massa.md) | Selecionar tudo e exportação imediata da coleção |
 | [`features/14-pasta-vinculada.md`](features/14-pasta-vinculada.md) | Coleção espelhada numa pasta do computador |
+| [`features/15-visual-liquid-glass.md`](features/15-visual-liquid-glass.md) | Camada visual “liquid glass” |
 
 ## Relatórios de entrega
 
@@ -101,11 +109,12 @@ Os diagramas estão em **PlantUML** (texto → imagem; versiona bem no Git). Par
 > Itens 4 e 5 são trilhas de **outras abordagens**. O enunciado pede que cada
 > equipe atualize "conforme **sua** abordagem" — a nossa é SQL (item 3).
 
-## Como rodar o sistema (para a apresentação da N2)
+## Como rodar o sistema
 
-1. Ter **Python 3.10+** e **Ollama** instalados (com `llava` e `llama3.2`).
-2. Configurar `backend/.env` com as credenciais do Supabase (ver `.env.example`).
-3. Clicar em **`rodar.bat`** (ou `py backend/app.py`).
+1. Ter **Python 3.11+** instalado e as dependências de `backend/requirements.txt`.
+2. Configurar `backend/.env` com `DATABASE_URL` e `ANTHROPIC_API_KEY` (ver `.env.example`).
+3. Rodar `py backend/app.py` — na primeira vez ele baixa os modelos sozinho (~1,6 GB).
 4. Acessar `http://127.0.0.1:5000`.
 
-Detalhes técnicos completos: [`../RELATORIO.txt`](../RELATORIO.txt).
+Passo a passo completo: [`../README.md`](../README.md). Estado técnico e
+decisões: [`../RELATORIO.md`](../RELATORIO.md).

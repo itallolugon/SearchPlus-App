@@ -232,7 +232,7 @@ py dev.py testes
 py dev.py cobertura
 ```
 
-São 846 testes em ~11 segundos, cobrindo as regras de busca, o parsing da
+São 852 testes em ~10 segundos, cobrindo as regras de busca, o parsing da
 descrição da IA, o tratamento de caminhos, a autenticação, a allowlist de
 arquivos estáticos e os endpoints de dados. Há ainda testes de carga (Locust) e
 um pipeline de CI no GitHub Actions.

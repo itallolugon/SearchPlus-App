@@ -23,19 +23,23 @@ pytestmark = pytest.mark.unit
 
 
 class TestExtracaoDoSufixo:
+    # Caminho montado com os.path.join, não escrito como r"D:\A\Ferias": no
+    # Linux do CI a contrabarra não separa pastas, e o basename seria a string
+    # inteira. Os casos de None passavam por acaso; os outros quebravam.
     @pytest.mark.parametrize(
         "pasta,colecao,esperado",
         [
-            (r"D:\A\Ferias", "Ferias", ""),  # exatamente o prefixo
-            (r"D:\A\Ferias_backup", "Ferias", "backup"),
-            (r"D:\A\Ferias_praia_2", "Ferias", "praia_2"),
-            (r"D:\A\Outra", "Ferias", None),  # não deriva do prefixo
-            (r"D:\A\FeriasXbackup", "Ferias", None),  # sem o separador
-            (r"D:\A\Feriasx", "Ferias", None),  # prefixo é só um pedaço
+            ("Ferias", "Ferias", ""),  # exatamente o prefixo
+            ("Ferias_backup", "Ferias", "backup"),
+            ("Ferias_praia_2", "Ferias", "praia_2"),
+            ("Outra", "Ferias", None),  # não deriva do prefixo
+            ("FeriasXbackup", "Ferias", None),  # sem o separador
+            ("Feriasx", "Ferias", None),  # prefixo é só um pedaço
         ],
     )
     def test_separa_prefixo_de_sufixo(self, app_module, pasta, colecao, esperado):
-        assert app_module._sufixo_da_pasta(pasta, colecao) == esperado
+        caminho = os.path.join("D:\\A", pasta)
+        assert app_module._sufixo_da_pasta(caminho, colecao) == esperado
 
     def test_none_e_diferente_de_string_vazia(self, app_module):
         """
@@ -43,8 +47,8 @@ class TestExtracaoDoSufixo:
         None significa "não é desta coleção". Confundir os dois fazia duas
         pastas disputarem o mesmo nome novo.
         """
-        assert app_module._sufixo_da_pasta(r"D:\A\Ferias", "Ferias") == ""
-        assert app_module._sufixo_da_pasta(r"D:\A\Outra", "Ferias") is None
+        assert app_module._sufixo_da_pasta(os.path.join("D:\\A", "Ferias"), "Ferias") == ""
+        assert app_module._sufixo_da_pasta(os.path.join("D:\\A", "Outra"), "Ferias") is None
 
     def test_usa_o_nome_sanitizado_como_prefixo(self, app_module):
         """A pasta guarda o nome já sanitizado — comparar com o cru não casa."""

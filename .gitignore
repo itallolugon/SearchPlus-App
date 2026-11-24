@@ -4,6 +4,9 @@
 # Credenciais (Postgres/Supabase, Anthropic). Modelo em backend/.env.example.
 .env
 backend/.env
+# Arquivo intermediário da gravação atômica do .env pela tela do Claude.
+# Se o processo cair no meio da gravação, ele sobra com a credencial dentro.
+.env.tmp
 # Chave de sessão gerada no primeiro boot (assina o cookie de login)
 backend/.secret_key
 # Preferências de usuário salvas fora do banco. No repositório anterior este

@@ -20,6 +20,8 @@ pytestmark = pytest.mark.unit
         ('could not translate host name "db.x.supabase.co" to address', "Session pooler"),
         ("connection to server at x, port 5432 failed: timeout expired", "internet"),
         ("Connection refused", "internet"),
+        ("FATAL:  (ENOTFOUND) tenant/user postgres.abc not found", "reativado"),
+        ("FATAL:  Tenant or user not found", "reativado"),
     ],
 )
 def test_causa_conhecida_ganha_orientacao(app_module, erro, trecho):

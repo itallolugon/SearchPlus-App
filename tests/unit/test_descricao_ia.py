@@ -111,3 +111,48 @@ class TestTextoParaEmbedding:
 
     def test_entrada_vazia_nao_estoura(self, app_module):
         assert isinstance(app_module._texto_para_embedding(""), str)
+
+
+# Resposta real do Claude Haiku 5.5 (24/11/2026): os campos vieram em negrito
+# Markdown. Lidos ao pé da letra, "Animais" saía vazio — e a regra de
+# rejeição descartava a foto do cachorro numa busca por "cachorro".
+DESCRICAO_MARKDOWN = """- **Estilo:** foto
+- **O que é:** Um cachorro correndo na grama com uma bola amarela.
+- **Pessoas:** nenhuma
+- **Animais:** cachorro (Jack Russell terrier)
+- **Objetos:** bola amarela
+- **Ambiente:** gramado ao ar livre
+- **Ações:** correndo
+- **Texto:** nenhum
+- **Tags:** foto, cachorro, bola"""
+
+
+class TestDescricaoEmMarkdown:
+    def test_campo_e_lido_apesar_do_negrito(self, app_module):
+        norm = app_module._normalizar(DESCRICAO_MARKDOWN)
+        assert app_module._campo_descricao(norm, "animais").startswith("cachorro")
+        assert app_module._campo_descricao(norm, "pessoas") == ""
+
+    def test_categorias_apesar_do_negrito(self, app_module):
+        assert "animais" in app_module._categorias_do_arquivo(DESCRICAO_MARKDOWN)
+
+    def test_embedding_usa_os_campos(self, app_module):
+        texto = app_module._extrair_campos_descricao(DESCRICAO_MARKDOWN)
+        assert "Animais: cachorro" in texto
+        assert "gramado" not in texto  # Ambiente continua de fora
+        assert "**" not in texto
+
+    def test_descricao_nova_e_gravada_sem_markdown(self, app_module, monkeypatch):
+        monkeypatch.setattr(app_module, "CLAUDE_OK", True)
+        monkeypatch.setattr(app_module, "_preparar_imagem", lambda caminho: b"jpeg")
+        monkeypatch.setattr(
+            app_module,
+            "_chamar_claude",
+            lambda *a, **k: {"texto": DESCRICAO_MARKDOWN, "recusado": False, "cortado": False},
+        )
+        desc = app_module._analyze_image_claude("x.jpg", "descreva")
+        assert "**" not in desc
+        assert "- Animais: cachorro (Jack Russell terrier)" in desc
+
+    def test_prompt_pede_texto_simples(self, app_module):
+        assert "sem Markdown" in app_module._build_prompt_visao(["tudo"])

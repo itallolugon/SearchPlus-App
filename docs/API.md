@@ -26,6 +26,7 @@ Referência dos endpoints do backend (`backend/app.py`) para quem está construi
   - [Histórico de buscas](#histórico-de-buscas)
   - [Arquivos](#arquivos)
   - [Motor de indexação](#motor-de-indexação)
+  - [Conexão com o Claude](#conexão-com-o-claude)
 - [Particularidades que afetam o frontend](#particularidades-que-afetam-o-frontend)
 
 ---
@@ -1251,6 +1252,91 @@ Limpa o índice do usuário.
 
 #### `GET /api/debug/files` · `GET /api/debug/scores?q=<query>`
 Inspeção durante o desenvolvimento: lista os arquivos indexados e detalha a composição do score de cada resultado. Úteis para entender por que algo apareceu (ou não) numa busca.
+
+---
+
+### Conexão com o Claude
+
+Configura como o Search+ fala com o Claude: modo, credencial, modelo e effort.
+É uma configuração **do servidor**, não da conta: vale para todos que usam a
+mesma instalação.
+
+Dois modos:
+
+| `provedor` | Credencial | Cobrança |
+|---|---|---|
+| `assinatura` | Token de `claude setup-token` (`sk-ant-oat…`). O servidor chama o Claude Code instalado na máquina (`claude -p`), sem ferramentas e sem plugins | Limites do plano (Pro, Max…). Uso **pessoal**: o token é da conta de quem o gerou |
+| `api` | Chave de API do Claude Console (`sk-ant-api…`) | Créditos da API, cobrados à parte da assinatura |
+
+A credencial **nunca** volta nas respostas: só `final_credencial`, os 4
+últimos caracteres. Ela é gravada em `backend/.env` pelo servidor.
+
+Regras de acesso de todas as rotas abaixo: exigem sessão (`401`), só aceitam
+pedidos da própria máquina (`403`) e recusam escrita com `Origin` fora da lista
+do CORS (`403`). Escrita só com `Content-Type: application/json` (`415`).
+
+#### `GET /api/claude`
+
+```json
+{
+  "provedor": "assinatura",
+  "provedores": ["assinatura", "api"],
+  "configurada": true,
+  "final_credencial": "a1B2",
+  "claude_code_instalado": true,
+  "modelo": "claude-haiku-5-5",
+  "effort": "high",
+  "modelos": [{ "id": "claude-haiku-5-5", "nome": "Claude Haiku 5.5", "descricao": "O mais rápido e econômico" }],
+  "efforts": ["low", "medium", "high", "xhigh", "max"],
+  "estado": "conectado",
+  "mensagem": "",
+  "verificado_em": "2026-11-24T14:02:11+00:00",
+  "uso": { "status": "allowed", "janela_5h": 36, "janela_semanal": 17 }
+}
+```
+
+| `estado` | Significado |
+|---|---|
+| `iniciando` | O servidor ainda está subindo |
+| `sem_credencial` | Nada configurado para o modo atual |
+| `nao_verificado` | Configurado, sem chamada desde o boot |
+| `conectado` | A última chamada funcionou |
+| `credencial_invalida` | Formato errado ou recusada pela Anthropic |
+| `sem_credito` | Conta do Console sem créditos (modo `api`) |
+| `limite` | Limite de uso atingido (cota do plano ou da API) |
+| `modelo_indisponivel` | O modelo não está liberado para a conta |
+| `nao_instalado` | Modo `assinatura` sem o Claude Code na máquina |
+| `sem_conexao` / `indisponivel` / `erro` | Rede, instabilidade da Anthropic ou falha inesperada |
+
+`mensagem` traz o texto pronto para mostrar. `uso` só existe no modo
+`assinatura`, depois de alguma chamada: percentual já consumido das janelas de
+5 horas e semanal do plano.
+
+O estado também muda sozinho quando uma busca real falha (por exemplo, a cota
+acaba no meio do dia) — vale reler esta rota depois de cada busca.
+
+#### `POST /api/claude`
+
+Salva a configuração. Todos os campos são opcionais; o que faltar mantém o valor atual.
+
+```json
+{ "provedor": "assinatura", "credencial": "sk-ant-oat01-...", "modelo": "claude-haiku-5-5", "effort": "high" }
+```
+
+→ `200` com o mesmo corpo do `GET`. Com `credencial` nova, o servidor já faz
+uma chamada de teste e devolve o resultado em `estado`.
+· `400` modo, modelo ou effort desconhecido, ou credencial que não serve para o
+modo (o `error` explica — por exemplo, uma chave `sk-ant-api` colada no modo
+`assinatura`) · `415` corpo que não é JSON · `500` não foi possível gravar `backend/.env`
+
+#### `POST /api/claude/testar`
+
+Faz uma chamada mínima e devolve o corpo do `GET` com o `estado` atualizado.
+No modo `assinatura` a chamada conta na cota do plano.
+
+#### `DELETE /api/claude/credencial`
+
+Apaga a credencial do modo atual. → `200` com o corpo do `GET` (`estado: "sem_credencial"`).
 
 ---
 

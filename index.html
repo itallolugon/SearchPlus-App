@@ -316,6 +316,7 @@
              algo acontecendo (indexando, escaneando, offline). -->
         <div id="statusBar" class="status-bar" role="status" aria-live="polite" style="display: none;">Conectando ao motor...</div>
 
+
         <div class="nav-right">
             <div class="profile-container">
                 <div class="mini-profile" onclick="toggleProfileMenu(event)">
@@ -334,6 +335,7 @@
                     <a class="dropdown-item" onclick="abrirViewPerfil()"><span class="icon"></span> Meu Perfil</a>
                     <a class="dropdown-item" onclick="abrirSidebarConfig()"><span class="icon"></span> Personalização Visual</a>
                     <a class="dropdown-item" onclick="abrirModalConfigGerais()"><span class="icon"></span> Configurações Gerais</a>
+                    <a class="dropdown-item" onclick="abrirClaudeModal()"><span class="icon"></span> Conexão com o Claude</a>
                     <div class="dropdown-divider"></div>
                     <a class="dropdown-item dropdown-sair" onclick="fazerLogout()"><span class="icon"></span> Sair da Conta</a>
                 </div>
@@ -609,6 +611,11 @@
                     <input type="text" id="cgAtalho" class="settings-input" placeholder="Ex: Ctrl+Shift+F" onkeydown="capturarAtalho(event)">
                     <p style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 5px;">Pressione as teclas no campo acima. Funciona enquanto o app está aberto no navegador.</p>
                 </div>
+                <div class="settings-group" style="margin-bottom: 15px;">
+                    <label>Inteligência artificial</label>
+                    <p style="font-size: 0.8rem; color: var(--text-secondary); margin: 5px 0 10px;">Como o Search+ se conecta ao Claude, que descreve as imagens e julga os resultados da busca.</p>
+                    <button type="button" class="action-btn" onclick="fecharModalConfigGerais(); abrirClaudeModal()" style="margin: 0;">Conexão com o Claude</button>
+                </div>
             </div>
 
             <div id="cgTabPrivacidade" style="display: none;">
@@ -642,6 +649,60 @@
             <div style="display: flex; gap: 10px; margin-top: 12px;">
                 <button onclick="fecharModalConfigGerais()" class="action-btn" style="flex: 1; margin: 0;">Cancelar</button>
                 <button onclick="salvarConfigGerais()" class="action-btn gradient-btn" style="flex: 2; margin: 0; padding: 15px;">Salvar configurações</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Conexão com o Claude. A credencial só vai do navegador para o servidor:
+         o servidor devolve apenas os 4 últimos caracteres, e o campo é limpo
+         depois de salvar. Nada disto passa pelo localStorage. -->
+    <div id="claudeModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="claudeTitulo">
+        <div class="modal-content" style="max-width: 560px;">
+            <div class="sheet-head">
+                <div class="sheet-titles">
+                    <span class="eyebrow">Inteligência artificial</span>
+                    <h2 class="sheet-title" id="claudeTitulo">Conexão com o Claude</h2>
+                </div>
+                <button type="button" class="sheet-close" onclick="fecharClaudeModal()" aria-label="Fechar">&times;</button>
+            </div>
+
+            <div class="claude-estado" role="status" aria-live="polite">
+                <div><span id="claudeEstadoPonto" class="status-ponto status-ponto-extra" aria-hidden="true"></span><strong id="claudeEstadoTitulo">Verificando…</strong></div>
+                <p id="claudeEstadoMensagem" class="status-nota"></p>
+                <p id="claudeUso" class="status-nota" hidden></p>
+            </div>
+
+            <div class="settings-group">
+                <label for="claudeProvedor">Como conectar</label>
+                <select id="claudeProvedor" class="settings-input" onchange="atualizarAjudaClaude()">
+                    <option value="assinatura">Assinatura (Claude Code) — uso pessoal</option>
+                    <option value="api">Chave de API (Claude Console)</option>
+                </select>
+                <p id="claudeAjudaProvedor" class="status-nota"></p>
+            </div>
+
+            <div class="settings-group">
+                <label for="claudeCredencial" id="claudeCredencialRotulo">Token</label>
+                <input type="password" id="claudeCredencial" class="settings-input" autocomplete="off"
+                       spellcheck="false" autocapitalize="off" aria-describedby="claudeCredencialAjuda">
+                <p id="claudeCredencialAjuda" class="status-nota"></p>
+            </div>
+
+            <div class="settings-group">
+                <label for="claudeModelo">Modelo</label>
+                <select id="claudeModelo" class="settings-input"></select>
+            </div>
+
+            <div class="settings-group">
+                <label for="claudeEffort">Effort — quanto o modelo pensa antes de responder</label>
+                <select id="claudeEffort" class="settings-input"></select>
+                <p class="status-nota">Mais effort deixa as descrições e o julgamento mais cuidadosos, e também mais lentos e caros.</p>
+            </div>
+
+            <div class="claude-acoes">
+                <button type="button" id="claudeBtnRemover" class="action-btn acao-perigo-suave" onclick="removerCredencialClaude()">Remover credencial</button>
+                <button type="button" id="claudeBtnTestar" class="action-btn" onclick="testarClaude()">Testar conexão</button>
+                <button type="button" id="claudeBtnSalvar" class="action-btn gradient-btn" onclick="salvarClaude()">Salvar</button>
             </div>
         </div>
     </div>
@@ -1002,6 +1063,13 @@
         <button class="dock-btn" onclick="abrirModalConfigGerais()">
             <span class="dock-ic"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M22 12h-3M5 12H2M18.4 5.6l-2 2M7.6 16.4l-2 2M18.4 18.4l-2-2M7.6 7.6l-2-2"/></svg></span>
             <span class="dock-nome">Ajustes</span>
+        </button>
+        <!-- Conexão com o Claude: o ponto mostra o estado, porque dele dependem a
+             descrição das imagens e o julgamento da busca. Some antes do login. -->
+        <button type="button" id="claudeIndicador" class="dock-btn dock-claude" onclick="abrirClaudeModal()"
+                aria-label="Conexão com o Claude" data-tip="Claude" style="display: none;">
+            <span class="dock-ic"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/><path d="M18.5 16.5l.7 2 2 .7-2 .7-.7 2-.7-2-2-.7 2-.7z"/></svg><span class="status-ponto status-ponto-extra dock-claude-ponto" aria-hidden="true"></span></span>
+            <span class="dock-nome">Claude</span>
         </button>
         <!-- Estas três eram do menu lateral do develop, que o dock substituiu.
              Sem elas aqui, a lixeira e as exportações ficariam inalcançáveis. -->

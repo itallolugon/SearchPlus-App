@@ -1709,6 +1709,117 @@ def health():
     })
 
 
+# Conexão com o Claude. Mesmo formato do backend real, estado só em memória:
+# nada é gravado em disco nem enviado para fora, e a credencial colada não é
+# guardada — só os 4 últimos caracteres, como o real mostra.
+_MODELOS_CLAUDE = [
+    {"id": "claude-haiku-5-5", "nome": "Claude Haiku 5.5",
+     "descricao": "O mais rápido e econômico"},
+    {"id": "claude-sonnet-5-5", "nome": "Claude Sonnet 5.5",
+     "descricao": "Equilíbrio entre velocidade e capacidade"},
+    {"id": "claude-opus-5-5", "nome": "Claude Opus 5.5",
+     "descricao": "O mais capaz, mais lento e caro"},
+]
+_EFFORTS_CLAUDE = ["low", "medium", "high", "xhigh", "max"]
+_CLAUDE = {"provedor": "assinatura", "modelo": "claude-haiku-5-5", "effort": "high",
+           "final": {"assinatura": "", "api": ""}, "estado": "sem_credencial",
+           "mensagem": "Nenhuma credencial configurada.", "verificado_em": None,
+           "uso": None}
+
+
+def _validar_credencial_mock(provedor: str, valor: str) -> str:
+    if not valor:
+        return "Cole a credencial."
+    if valor.startswith("sk-ant-admin"):
+        return ("Essa é uma chave de administração da organização, que não "
+                "acessa os modelos.")
+    if provedor == "assinatura":
+        if valor.startswith("sk-ant-api"):
+            return ("Isso é uma chave de API. Para usá-la, escolha o modo "
+                    "\"Chave de API\".")
+        if not (valor.startswith("sk-ant-oat") and len(valor) >= 30 and " " not in valor):
+            return ("Isso não parece um token de claude setup-token. Ele começa "
+                    "com sk-ant-oat e não tem espaços — copie o token inteiro.")
+        return ""
+    if valor.startswith("sk-ant-oat"):
+        return ("Isso é um token da assinatura (claude setup-token). Para usá-lo, "
+                "escolha o modo \"Assinatura (Claude Code)\".")
+    if not (valor.startswith("sk-ant-api") and len(valor) >= 30 and " " not in valor):
+        return ("Isso não parece uma chave de API do Claude. Ela começa com "
+                "sk-ant-api e não tem espaços — copie a chave inteira.")
+    return ""
+
+
+def _resumo_claude_mock() -> dict:
+    p = _CLAUDE["provedor"]
+    return {
+        "estado": _CLAUDE["estado"], "mensagem": _CLAUDE["mensagem"],
+        "verificado_em": _CLAUDE["verificado_em"], "uso": _CLAUDE["uso"],
+        "provedor": p, "provedores": ["assinatura", "api"],
+        "configurada": bool(_CLAUDE["final"][p]), "final_credencial": _CLAUDE["final"][p],
+        "claude_code_instalado": True,
+        "modelo": _CLAUDE["modelo"], "effort": _CLAUDE["effort"],
+        "modelos": _MODELOS_CLAUDE, "efforts": _EFFORTS_CLAUDE,
+    }
+
+
+def _marcar_claude_mock() -> None:
+    configurada = bool(_CLAUDE["final"][_CLAUDE["provedor"]])
+    _CLAUDE["estado"] = "conectado" if configurada else "sem_credencial"
+    _CLAUDE["mensagem"] = "" if configurada else "Nenhuma credencial configurada."
+    _CLAUDE["verificado_em"] = datetime.now().isoformat()
+    _CLAUDE["uso"] = ({"status": "allowed", "janela_5h": 12, "janela_semanal": 4}
+                      if configurada and _CLAUDE["provedor"] == "assinatura" else None)
+
+
+@app.route("/api/claude", methods=["GET", "POST"])
+def claude_config():
+    if not _logado():
+        return _nao_autenticado()
+    if request.method == "GET":
+        return jsonify(_resumo_claude_mock())
+    if not request.is_json:
+        return jsonify({"error": "Envie os dados em JSON."}), 415
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"error": "Dados inválidos."}), 400
+    provedor = str(data.get("provedor") or _CLAUDE["provedor"]).strip().lower()
+    modelo = str(data.get("modelo") or _CLAUDE["modelo"]).strip()
+    effort = str(data.get("effort") or _CLAUDE["effort"]).strip().lower()
+    credencial = str(data.get("credencial") or "").strip()
+    if provedor not in ("assinatura", "api"):
+        return jsonify({"error": "Modo de conexão desconhecido."}), 400
+    if modelo not in {m["id"] for m in _MODELOS_CLAUDE}:
+        return jsonify({"error": "Modelo desconhecido. Escolha um da lista."}), 400
+    if effort not in _EFFORTS_CLAUDE:
+        return jsonify({"error": "Nível de effort desconhecido."}), 400
+    if credencial:
+        motivo = _validar_credencial_mock(provedor, credencial)
+        if motivo:
+            return jsonify({"error": motivo}), 400
+        _CLAUDE["final"][provedor] = credencial[-4:]
+    _CLAUDE.update(provedor=provedor, modelo=modelo, effort=effort)
+    _marcar_claude_mock()
+    return jsonify(_resumo_claude_mock())
+
+
+@app.route("/api/claude/testar", methods=["POST"])
+def claude_testar():
+    if not _logado():
+        return _nao_autenticado()
+    _marcar_claude_mock()
+    return jsonify(_resumo_claude_mock())
+
+
+@app.route("/api/claude/credencial", methods=["DELETE"])
+def claude_remover_credencial():
+    if not _logado():
+        return _nao_autenticado()
+    _CLAUDE["final"][_CLAUDE["provedor"]] = ""
+    _marcar_claude_mock()
+    return jsonify(_resumo_claude_mock())
+
+
 # Resumo da ultima indexacao. Comeca vazio (nunca indexou) e e preenchido
 # quando a fila simulada zera -- assim o front exercita os DOIS estados: o
 # "nunca rodou" e o resumo com erro para expandir.

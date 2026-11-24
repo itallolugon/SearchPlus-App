@@ -14,6 +14,7 @@ import secrets
 import sys
 import shutil
 import subprocess
+import tempfile
 import threading
 import time
 import unicodedata
@@ -68,34 +69,497 @@ if not DATABASE_URL:
 
 # ── Claude (Anthropic): toda a IA de visão e re-rank do Search+ ─────────────
 # O Search+ usa o Claude para (1) descrever imagens e (2) julgar a relevância
-# dos resultados da busca. A chave fica no .env (ANTHROPIC_API_KEY), nunca no
-# código. Os embeddings (SBERT/CLIP) continuam locais — só a descrição e o
-# julgamento usam a API.
+# dos resultados da busca. Os embeddings (SBERT/CLIP) continuam locais — só a
+# descrição e o julgamento usam o Claude.
+#
+# Dois modos de conexão, escolhidos na tela "Conexão com o Claude":
+#
+#   assinatura  O Search+ chama o Claude Code instalado neste computador
+#               (`claude -p`), autenticado com o token de `claude setup-token`.
+#               É o uso que a documentação do token prevê — scripts e ambientes
+#               sem navegador — e consome os limites do plano (Pro/Max/...).
+#               Uso PESSOAL: o token é da sua conta e não deve ser compartilhado
+#               nem distribuído junto com o Search+.
+#   api         O SDK oficial com uma chave de API (sk-ant-api…) do Claude
+#               Console. Cobrado em créditos da API, à parte da assinatura.
+#
+# As credenciais moram em backend/.env (fora do Git), são gravadas pela tela ou
+# à mão, e nunca são devolvidas ao navegador nem escritas em log.
 _CLAUDE = None
 CLAUDE_OK = False
-# Modelo usado tanto para descrever imagens quanto para julgar a busca.
-# Pode ser trocado no .env (CLAUDE_MODEL) sem mexer no código.
-CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "").strip() or "claude-sonnet-5-5"
-# O `import anthropic` custa ~3s sozinho. Como nada dele é preciso para o
-# servidor atender, ele sai daqui e vai para a carga em segundo plano, junto
-# dos modelos — ver _carregar_modelos().
+
+ARQUIVO_ENV = BASE_DIR / ".env"
+
+# Modelos oferecidos na tela. IDs conferidos na documentação oficial
+# (platform.claude.com/docs/en/about-claude/models/overview).
+MODELOS_CLAUDE = [
+    {"id": "claude-haiku-5-5", "nome": "Claude Haiku 5.5",
+     "descricao": "O mais rápido e econômico"},
+    {"id": "claude-sonnet-5-5", "nome": "Claude Sonnet 5.5",
+     "descricao": "Equilíbrio entre velocidade e capacidade"},
+    {"id": "claude-opus-5-5", "nome": "Claude Opus 5.5",
+     "descricao": "O mais capaz, mais lento e caro"},
+]
+EFFORTS_CLAUDE = ("low", "medium", "high", "xhigh", "max")
+PROVEDORES_CLAUDE = ("assinatura", "api")
+
+# Variáveis do .env. O token da assinatura NÃO fica como CLAUDE_CODE_OAUTH_TOKEN
+# no ambiente do servidor: só o subprocesso do Claude Code o recebe, com esse
+# nome, na hora da chamada.
+_VAR_CHAVE_API = "ANTHROPIC_API_KEY"
+_VAR_TOKEN = "SEARCHPLUS_CLAUDE_TOKEN"
+
+# Modelo e effort usados tanto para descrever imagens quanto para julgar a
+# busca. O effort vai sempre explícito: no Haiku 5.5 o padrão da API é
+# "medium", e o pedido aqui é "high".
+CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "").strip() or "claude-haiku-5-5"
+_effort_env = os.environ.get("CLAUDE_EFFORT", "").strip().lower()
+CLAUDE_EFFORT = _effort_env if _effort_env in EFFORTS_CLAUDE else "high"
+
+
+def _provedor_inicial() -> str:
+    escolhido = os.environ.get("CLAUDE_PROVEDOR", "").strip().lower()
+    if escolhido in PROVEDORES_CLAUDE:
+        return escolhido
+    if os.environ.get(_VAR_TOKEN, "").strip():
+        return "assinatura"
+    if os.environ.get(_VAR_CHAVE_API, "").strip():
+        return "api"
+    return "assinatura"
+
+
+CLAUDE_PROVEDOR = _provedor_inicial()
+
+# O raciocínio do modelo conta dentro de max_tokens. Com effort alto, um teto
+# curto corta a resposta antes do texto (stop_reason "max_tokens").
+_MAX_TOKENS_CLAUDE = 16000
+_TIMEOUT_CLAUDE_CODE_S = 180
+
+# Estado da conexão, mostrado no indicador do topo. Nunca guarda credencial.
+_estado_claude = {"estado": "iniciando", "mensagem": "", "verificado_em": None,
+                  "uso": None}
+_lock_claude = threading.Lock()
+
+_RE_CHAVE_API = re.compile(r"sk-ant-api[0-9A-Za-z_\-]{20,300}")
+_RE_TOKEN = re.compile(r"sk-ant-oat[0-9A-Za-z_\-]{20,400}")
+
+
+class FalhaClaude(Exception):
+    """Falha já classificada: `estado` e `mensagem` vão para a tela."""
+
+    def __init__(self, estado: str, mensagem: str):
+        super().__init__(mensagem)
+        self.estado = estado
+        self.mensagem = mensagem
+
+
+def _definir_estado_claude(estado: str, mensagem: str = "") -> None:
+    with _lock_claude:
+        _estado_claude["estado"] = estado
+        _estado_claude["mensagem"] = mensagem
+        _estado_claude["verificado_em"] = datetime.now(timezone.utc).isoformat()
+
+
+def _validar_credencial(provedor: str, valor: str) -> str:
+    """Devolve "" se o valor serve para o modo, ou o motivo da recusa."""
+    if not valor:
+        return "Cole a credencial."
+    if valor.startswith("sk-ant-admin"):
+        return ("Essa é uma chave de administração da organização, que não "
+                "acessa os modelos.")
+    if provedor == "assinatura":
+        if valor.startswith("sk-ant-api"):
+            return ("Isso é uma chave de API. Para usá-la, escolha o modo "
+                    "\"Chave de API\".")
+        if not _RE_TOKEN.fullmatch(valor):
+            return ("Isso não parece um token de claude setup-token. Ele começa "
+                    "com sk-ant-oat e não tem espaços — copie o token inteiro.")
+        return ""
+    if valor.startswith("sk-ant-oat"):
+        return ("Isso é um token da assinatura (claude setup-token). Para usá-lo, "
+                "escolha o modo \"Assinatura (Claude Code)\".")
+    if not _RE_CHAVE_API.fullmatch(valor):
+        return ("Isso não parece uma chave de API do Claude. Ela começa com "
+                "sk-ant-api e não tem espaços — copie a chave inteira.")
+    return ""
+
+
+def _var_da_credencial(provedor: str) -> str:
+    return _VAR_TOKEN if provedor == "assinatura" else _VAR_CHAVE_API
+
+
+def _credencial(provedor: str) -> str:
+    return os.environ.get(_var_da_credencial(provedor), "").strip()
+
+
+def _final_da_credencial(provedor: str) -> str:
+    valor = _credencial(provedor)
+    return valor[-4:] if len(valor) >= 8 else ""
+
+
+def _gravar_no_env(alteracoes: dict) -> None:
+    """
+    Atualiza variáveis em backend/.env sem mexer no resto do arquivo.
+
+    `None` remove a variável. Linhas comentadas e as demais variáveis
+    (DATABASE_URL, por exemplo) ficam intactas. A escrita é atômica: um
+    arquivo temporário substitui o original de uma vez, para que uma queda no
+    meio não deixe um .env pela metade — sem ele o app nem sobe.
+    """
+    for nome, valor in alteracoes.items():
+        if valor is not None and any(c in valor for c in "\r\n\"'"):
+            raise ValueError(f"valor inválido para {nome}")
+
+    linhas = []
+    if ARQUIVO_ENV.exists():
+        linhas = ARQUIVO_ENV.read_text(encoding="utf-8").splitlines()
+
+    pendentes = dict(alteracoes)
+    saida = []
+    for linha in linhas:
+        m = re.match(r"\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=", linha)
+        nome = m.group(1) if m else None
+        if nome in alteracoes:
+            if nome in pendentes:
+                valor = pendentes.pop(nome)
+                if valor is not None:
+                    saida.append(f"{nome}={valor}")
+            continue  # remove duplicatas da mesma variável
+        saida.append(linha)
+    for nome, valor in pendentes.items():
+        if valor is not None:
+            saida.append(f"{nome}={valor}")
+
+    temporario = ARQUIVO_ENV.with_name(".env.tmp")
+    temporario.write_text("\n".join(saida) + "\n", encoding="utf-8")
+    os.replace(temporario, ARQUIVO_ENV)
+    _restringir_ao_dono(ARQUIVO_ENV)
+
+    for nome, valor in alteracoes.items():
+        if valor is None:
+            os.environ.pop(nome, None)
+        else:
+            os.environ[nome] = valor
+
+
+# ── Modo "api": SDK oficial ────────────────────────────────────────────────
+
+def _classificar_erro_api(exc) -> tuple:
+    """
+    Traduz uma exceção do SDK em (estado, mensagem para quem usa o app).
+
+    A mensagem diz o que fazer; o detalhe técnico vai só para o log. Nada aqui
+    inclui a chave — as exceções do SDK não a carregam.
+    """
+    try:
+        import anthropic as _a
+    except ImportError:
+        return "erro", "A biblioteca do Claude não está instalada (pip install anthropic)."
+
+    detalhe = (getattr(exc, "message", "") or str(exc) or "").lower()
+    if isinstance(exc, _a.AuthenticationError):
+        return ("credencial_invalida",
+                "A chave foi recusada pela Anthropic. Confira se copiou a chave "
+                "inteira ou gere uma nova no Claude Console.")
+    if isinstance(exc, _a.PermissionDeniedError):
+        return ("sem_permissao", "A chave não tem permissão para usar este modelo.")
+    if isinstance(exc, _a.NotFoundError):
+        return ("modelo_indisponivel",
+                "O modelo escolhido não está disponível para esta conta. "
+                "Escolha outro na tela de conexão.")
+    if isinstance(exc, _a.RateLimitError):
+        return ("limite", "Limite de uso da API atingido. Aguarde um pouco e tente de novo.")
+    if isinstance(exc, _a.BadRequestError) and "credit balance" in detalhe:
+        return ("sem_credito",
+                "A conta do Claude Console está sem créditos. Adicione créditos "
+                "em Billing, no Claude Console.")
+    if isinstance(exc, (_a.APITimeoutError, _a.APIConnectionError)):
+        return ("sem_conexao", "Não foi possível falar com a Anthropic. Confira a internet.")
+    if isinstance(exc, _a.APIStatusError):
+        codigo = getattr(exc, "status_code", 0) or 0
+        if codigo >= 500:
+            return ("indisponivel",
+                    "O serviço da Anthropic está instável. Tente de novo em instantes.")
+        return "erro", f"A Anthropic recusou o pedido (erro {codigo})."
+    return "erro", "Falha inesperada ao falar com o Claude."
+
+
+def _chamar_via_api(conteudo, *, sistema, schema, effort) -> dict:
+    config = {"effort": effort}
+    if schema:
+        config["format"] = {"type": "json_schema", "schema": schema}
+    kwargs = dict(model=CLAUDE_MODEL, max_tokens=_MAX_TOKENS_CLAUDE,
+                  output_config=config,
+                  messages=[{"role": "user", "content": conteudo}])
+    if sistema:
+        kwargs["system"] = sistema
+    try:
+        resp = _CLAUDE.messages.create(**kwargs)
+    except Exception as exc:
+        raise FalhaClaude(*_classificar_erro_api(exc)) from exc
+    # A resposta pode começar com blocos de raciocínio: lê pelo tipo.
+    texto = "".join(b.text for b in resp.content if b.type == "text").strip()
+    return {"texto": texto, "recusado": resp.stop_reason == "refusal",
+            "cortado": resp.stop_reason == "max_tokens"}
+
+
+# ── Modo "assinatura": Claude Code em modo não interativo ──────────────────
+
+# Credenciais que o Claude Code prefere ao token (ANTHROPIC_API_KEY vence o
+# CLAUDE_CODE_OAUTH_TOKEN na ordem de precedência). Saem do ambiente do
+# subprocesso para que ele use, de fato, a assinatura.
+_VARS_QUE_ATROPELAM_O_TOKEN = (
+    "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_PROFILE",
+    "ANTHROPIC_FEDERATION_RULE_ID", "CLAUDE_CODE_USE_BEDROCK",
+    "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY", _VAR_TOKEN,
+)
+
+# Prompt de sistema curto e só ASCII: substitui o do Claude Code (que é longo)
+# e não passa por nenhum shell.
+_SISTEMA_CLAUDE_CODE = ("You are the vision and relevance engine of Search+, a "
+                        "local file search app. Follow the user's instructions exactly.")
+
+
+def _binario_claude_code():
+    """
+    Caminho do executável do Claude Code, ou None.
+
+    No Windows, a instalação via npm põe no PATH um `claude.cmd` que só repassa
+    os argumentos para um `claude.exe`. Chamar o .exe direto evita o cmd.exe,
+    cujas regras de escape estragariam argumentos com JSON.
+    """
+    configurado = os.environ.get("CLAUDE_CODE_BIN", "").strip()
+    if configurado:
+        return configurado if os.path.isfile(configurado) else None
+    achado = shutil.which("claude")
+    if not achado:
+        return None
+    if achado.lower().endswith((".cmd", ".bat", ".ps1")):
+        exe = (Path(achado).parent / "node_modules" / "@anthropic-ai" / "claude-code"
+               / "bin" / "claude.exe")
+        return str(exe) if exe.is_file() else None
+    return achado
+
+
+def _uso_da_assinatura(info: dict):
+    """Resumo do rate_limit_event: quanto das janelas de 5h e semanal já foi usado."""
+    if not isinstance(info, dict):
+        return None
+    janelas = info.get("unifiedWindows") or {}
+    def pct(nome):
+        v = (janelas.get(nome) or {}).get("utilization")
+        return round(float(v) * 100) if isinstance(v, (int, float)) else None
+    return {"status": info.get("status"),
+            "janela_5h": pct("five_hour"),
+            "janela_semanal": pct("seven_day")}
+
+
+def _classificar_erro_claude_code(status, texto: str) -> tuple:
+    texto_l = (texto or "").lower()
+    if status == 401 or "authenticate" in texto_l:
+        return ("credencial_invalida",
+                "O token foi recusado. Gere um novo com `claude setup-token` e "
+                "cole na tela de conexão.")
+    if status == 429 or "limit" in texto_l:
+        return ("limite",
+                "O limite de uso da sua assinatura foi atingido. Ele volta no "
+                "fim da janela atual — veja o uso na tela de conexão.")
+    if status == 404 or "model" in texto_l and "not" in texto_l:
+        return ("modelo_indisponivel",
+                "O modelo escolhido não está disponível no seu plano. Escolha outro.")
+    if isinstance(status, int) and status >= 500:
+        return ("indisponivel",
+                "O serviço da Anthropic está instável. Tente de novo em instantes.")
+    return "erro", "O Claude Code não conseguiu responder."
+
+
+def _chamar_via_claude_code(conteudo, *, schema, effort) -> dict:
+    binario = _binario_claude_code()
+    if not binario:
+        raise FalhaClaude("nao_instalado",
+                          "O Claude Code não foi encontrado neste computador. "
+                          "Instale-o (code.claude.com) ou use o modo \"Chave de API\".")
+    token = _credencial("assinatura")
+    if not token:
+        raise FalhaClaude("sem_credencial", "Nenhum token da assinatura configurado.")
+
+    cmd = [binario, "-p", "--model", CLAUDE_MODEL, "--effort", effort,
+           "--tools", "", "--no-session-persistence", "--setting-sources", "",
+           "--strict-mcp-config", "--disable-slash-commands",
+           "--input-format", "stream-json", "--output-format", "stream-json",
+           "--verbose", "--system-prompt", _SISTEMA_CLAUDE_CODE]
+    if schema:
+        cmd += ["--json-schema", json.dumps(schema, separators=(",", ":"))]
+
+    ambiente = {k: v for k, v in os.environ.items() if k not in _VARS_QUE_ATROPELAM_O_TOKEN}
+    ambiente["CLAUDE_CODE_OAUTH_TOKEN"] = token
+    entrada = json.dumps({"type": "user",
+                          "message": {"role": "user", "content": conteudo}}) + "\n"
+    try:
+        proc = subprocess.run(
+            cmd, input=entrada, capture_output=True, text=True, encoding="utf-8",
+            errors="replace", timeout=_TIMEOUT_CLAUDE_CODE_S, env=ambiente,
+            # Pasta neutra: nenhum CLAUDE.md de projeto é carregado.
+            cwd=tempfile.gettempdir(),
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise FalhaClaude("sem_conexao",
+                          "O Claude Code demorou demais para responder. "
+                          "Confira a internet e tente de novo.") from exc
+    except OSError as exc:
+        raise FalhaClaude("nao_instalado", "Não foi possível iniciar o Claude Code.") from exc
+
+    resultado, uso = None, None
+    for linha in proc.stdout.splitlines():
+        try:
+            evento = json.loads(linha)
+        except ValueError:
+            continue
+        if evento.get("type") == "rate_limit_event":
+            uso = _uso_da_assinatura(evento.get("rate_limit_info"))
+        elif evento.get("type") == "result":
+            resultado = evento
+    if uso:
+        with _lock_claude:
+            _estado_claude["uso"] = uso
+
+    if resultado is None:
+        raise FalhaClaude("erro", "O Claude Code encerrou sem responder.")
+    if resultado.get("is_error"):
+        raise FalhaClaude(*_classificar_erro_claude_code(
+            resultado.get("api_error_status"), str(resultado.get("result") or "")))
+
+    estruturado = resultado.get("structured_output")
+    texto = (json.dumps(estruturado) if estruturado is not None
+             else str(resultado.get("result") or "")).strip()
+    return {"texto": texto, "recusado": resultado.get("stop_reason") == "refusal",
+            "cortado": False}
+
+
+# ── Ponto único de chamada ─────────────────────────────────────────────────
+
+def _chamar_claude(conteudo, *, schema=None, sistema=None, effort=None,
+                   contexto: str = "Claude") -> dict:
+    """
+    Faz a chamada pelo modo configurado e devolve {"texto", "recusado", "cortado"}.
+
+    Falha vira FalhaClaude, com o estado da conexão já atualizado para o
+    indicador do topo. Sucesso marca a conexão como ativa.
+    """
+    effort = effort or CLAUDE_EFFORT
+    try:
+        if CLAUDE_PROVEDOR == "assinatura":
+            r = _chamar_via_claude_code(conteudo, schema=schema, effort=effort)
+        else:
+            if _CLAUDE is None:
+                raise FalhaClaude("sem_credencial", "Nenhuma chave de API configurada.")
+            r = _chamar_via_api(conteudo, sistema=sistema, schema=schema, effort=effort)
+    except FalhaClaude as falha:
+        _definir_estado_claude(falha.estado, falha.mensagem)
+        print(f"[AI] {contexto}: falhou ({falha.estado})")
+        raise
+    if _estado_claude["estado"] != "conectado":
+        _definir_estado_claude("conectado")
+    return r
 
 
 def _iniciar_claude() -> None:
+    """(Re)prepara a conexão pelo modo atual. Chamada no boot e ao salvar."""
     global _CLAUDE, CLAUDE_OK
+    _CLAUDE, CLAUDE_OK = None, False
+    credencial = _credencial(CLAUDE_PROVEDOR)
+    if not credencial:
+        _definir_estado_claude("sem_credencial", "Nenhuma credencial configurada.")
+        print("[AI] Claude sem credencial — descrição de imagens e re-rank "
+              "desligados. Configure em Ajustes > Conexão com o Claude.")
+        return
+    motivo = _validar_credencial(CLAUDE_PROVEDOR, credencial)
+    if motivo:
+        _definir_estado_claude("credencial_invalida", motivo)
+        print("[AI] A credencial em backend/.env não serve para o modo escolhido.")
+        return
+
+    if CLAUDE_PROVEDOR == "assinatura":
+        if not _binario_claude_code():
+            _definir_estado_claude("nao_instalado",
+                                   "O Claude Code não foi encontrado neste computador.")
+            print("[AI] Modo assinatura sem Claude Code instalado.")
+            return
+        CLAUDE_OK = True
+        _definir_estado_claude("nao_verificado")
+        print(f"[AI] Claude ativo via assinatura/Claude Code ({CLAUDE_MODEL}, "
+              f"effort {CLAUDE_EFFORT}).")
+        return
+
     try:
         import anthropic as _anthropic
-        _chave = os.environ.get("ANTHROPIC_API_KEY", "").strip()
-        if not _chave:
-            print("[AI] ANTHROPIC_API_KEY não encontrada no .env — análise de imagens e re-rank ficarão indisponíveis.")
-            return
-        _CLAUDE = _anthropic.Anthropic(api_key=_chave)
+        _CLAUDE = _anthropic.Anthropic(api_key=credencial)
         CLAUDE_OK = True
-        print("[AI] Claude ativo — descrição de imagens e re-rank da busca via API.")
+        _definir_estado_claude("nao_verificado")
+        print(f"[AI] Claude ativo via API ({CLAUDE_MODEL}, effort {CLAUDE_EFFORT}).")
     except ImportError:
+        _definir_estado_claude("erro", "A biblioteca do Claude não está instalada (pip install anthropic).")
         print("[AI] Lib 'anthropic' não instalada (pip install anthropic).")
-    except Exception as _e:
-        print(f"[AI] Falha ao iniciar Claude: {_e}")
+    except Exception as exc:
+        _definir_estado_claude("erro", "Falha ao iniciar o cliente do Claude.")
+        print(f"[AI] Falha ao iniciar Claude: {type(exc).__name__}")
+
+
+def _testar_claude(*, com_chamada: bool) -> dict:
+    """
+    Confere a conexão.
+
+    No modo API, `models.retrieve` valida chave e modelo sem gastar tokens; a
+    chamada mínima (só no teste pedido pela tela) detecta conta sem crédito.
+    No modo assinatura não há consulta gratuita: o teste é uma chamada mínima,
+    que também traz o uso atual da cota.
+    """
+    if not CLAUDE_OK:
+        return dict(_estado_claude)
+    if CLAUDE_PROVEDOR == "api":
+        try:
+            _CLAUDE.models.retrieve(CLAUDE_MODEL)
+        except Exception as exc:
+            estado, mensagem = _classificar_erro_api(exc)
+            _definir_estado_claude(estado, mensagem)
+            print(f"[AI] Teste de conexão: falhou ({estado})")
+            return dict(_estado_claude)
+        if not com_chamada:
+            _definir_estado_claude("conectado")
+            return dict(_estado_claude)
+    elif not com_chamada:
+        return dict(_estado_claude)
+    try:
+        _chamar_claude("Responda apenas: ok", effort="low", contexto="Teste de conexão")
+    except FalhaClaude:
+        pass
+    return dict(_estado_claude)
+
+
+def _conferir_claude_no_boot() -> None:
+    """No boot, só a verificação gratuita (modo API); a assinatura não gasta cota à toa."""
+    if CLAUDE_OK and CLAUDE_PROVEDOR == "api":
+        _testar_claude(com_chamada=False)
+
+
+def _resumo_claude() -> dict:
+    """O que a tela recebe. Nunca inclui credencial — só os 4 últimos caracteres."""
+    with _lock_claude:
+        estado = dict(_estado_claude)
+    return {
+        **estado,
+        "provedor": CLAUDE_PROVEDOR,
+        "provedores": list(PROVEDORES_CLAUDE),
+        "configurada": bool(_credencial(CLAUDE_PROVEDOR)),
+        "final_credencial": _final_da_credencial(CLAUDE_PROVEDOR),
+        "claude_code_instalado": bool(_binario_claude_code()),
+        "modelo": CLAUDE_MODEL,
+        "effort": CLAUDE_EFFORT,
+        "modelos": MODELOS_CLAUDE,
+        "efforts": list(EFFORTS_CLAUDE),
+    }
+
 
 try:
     import fitz  # PyMuPDF
@@ -292,6 +756,7 @@ def _carregar_modelos_de_fato() -> None:
         SKLEARN_OK = False
         print(f"[AI] scikit-learn indisponível: {_e}")
     _iniciar_claude()
+    _conferir_claude_no_boot()
 
     # CLIP: busca visual direta (texto↔imagem no mesmo espaço vetorial).
     # Dois modelos: encoder de texto multilingual + encoder de imagem original.
@@ -508,6 +973,18 @@ def _gerar_embedding_clip_texto(text: str) -> list[float] | None:
         return None
 
 
+def _sem_markdown(texto: str) -> str:
+    """
+    Tira a ênfase Markdown (**negrito**, __negrito__) da descrição.
+
+    O Claude Haiku 5.5 devolve os campos como "- **Animais:** cachorro". Os
+    leitores abaixo procuram "animais:" no começo da linha; com os asteriscos,
+    o campo saía vazio, a imagem perdia a categoria e a regra de rejeição a
+    descartava numa busca pelo próprio animal.
+    """
+    return texto.replace("**", "").replace("__", "")
+
+
 def _extrair_campos_descricao(desc: str) -> str:
     """
     Extrai campos semanticamente ricos da descrição para gerar embedding.
@@ -519,7 +996,7 @@ def _extrair_campos_descricao(desc: str) -> str:
                    "acoes", "texto", "tags"}
     linhas_extraidas = []
 
-    for linha in desc.splitlines():
+    for linha in _sem_markdown(desc).splitlines():
         limpa = linha.strip().lstrip("-• ").strip()
         norm  = _normalizar(limpa)
         campo = norm.split(":")[0].strip() if ":" in norm else ""
@@ -572,7 +1049,7 @@ def _rerank_com_claude(query: str, candidatos: list[dict], topk: int = 15) -> li
     Penaliza forte (corta) os que o Claude marca como NÃO correspondentes; mantém
     a ordem do motor para os correspondentes. Degrada gracioso se a API falhar.
     """
-    if not CLAUDE_OK or _CLAUDE is None or not candidatos:
+    if not CLAUDE_OK or not candidatos:
         return candidatos
 
     topo = candidatos[:topk]
@@ -629,49 +1106,40 @@ def _rerank_com_claude(query: str, candidatos: list[dict], topk: int = 15) -> li
         + "\n".join(itens)
     )
 
-    try:
-        resp = _CLAUDE.messages.create(
-            model=CLAUDE_MODEL,
-            max_tokens=2000,
-            output_config={
-                "effort": "low",
-                "format": {
-                    "type": "json_schema",
-                    "schema": {
-                        "type": "object",
-                        "properties": {
-                            "veredictos": {
-                                "type": "array",
-                                "items": {
-                                    "type": "object",
-                                    "properties": {
-                                        "n": {"type": "integer"},
-                                        "corresponde": {"type": "boolean"},
-                                    },
-                                    "required": ["n", "corresponde"],
-                                    "additionalProperties": False,
-                                },
-                            },
-                        },
-                        "required": ["veredictos"],
-                        "additionalProperties": False,
+    schema = {
+        "type": "object",
+        "properties": {
+            "veredictos": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "n": {"type": "integer"},
+                        "corresponde": {"type": "boolean"},
                     },
+                    "required": ["n", "corresponde"],
+                    "additionalProperties": False,
                 },
             },
-            messages=[{"role": "user", "content": prompt}],
-        )
-        if resp.stop_reason == "refusal":
+        },
+        "required": ["veredictos"],
+        "additionalProperties": False,
+    }
+    try:
+        r = _chamar_claude(prompt, schema=schema, contexto="Re-rank")
+        if r["recusado"]:
             print("[Rerank Claude] Recusado — mantendo ordem original")
             return candidatos
-        raw = "".join(b.text for b in resp.content if b.type == "text").strip()
-        dados = json.loads(raw)
+        dados = json.loads(r["texto"])
         veredictos = {
             int(v["n"]): bool(v["corresponde"])
             for v in dados.get("veredictos", [])
             if isinstance(v, dict) and "n" in v and "corresponde" in v
         }
+    except FalhaClaude:
+        return candidatos  # estado já registrado; mantém a ordem do motor
     except Exception as exc:
-        print(f"[Rerank Claude] Falhou, mantendo ordem original: {exc}")
+        print(f"[Rerank Claude] Resposta inesperada, mantendo ordem original: {exc}")
         return candidatos
 
     for i, c in enumerate(julgaveis, 1):
@@ -718,6 +1186,12 @@ def _mensagem_falha_banco(exc) -> str:
     if "could not translate host name" in texto:
         return ("O endereço do banco não foi encontrado. Use a URL do Session pooler "
                 "do Supabase (ver backend/.env.example) e confira a internet.")
+    # O pooler do Supabase responde assim quando o projeto está pausado — e por
+    # alguns minutos depois de reativado, até voltar a reconhecê-lo.
+    if "tenant/user" in texto or "tenant or user not found" in texto:
+        return ("O Supabase não reconheceu o projeto. Se ele estava pausado e acabou "
+                "de ser reativado, espere alguns minutos e ligue de novo; se não, "
+                "copie outra vez a URL do Session pooler no painel do Supabase.")
     if "timeout" in texto or "timed out" in texto or "connection refused" in texto:
         return "O banco não respondeu. Confira a internet e tente de novo."
     return ("Não foi possível conectar ao banco. Confira a DATABASE_URL em "
@@ -2173,18 +2647,6 @@ def _bm25_scores(corpus_tokens: list[list[str]], query_tokens: list[str]) -> lis
         return [0.0] * len(corpus_tokens)
 
 
-def _match_filter(ext: str, filtro: str) -> bool:
-    ext = ext.lower()
-    if filtro == "all":
-        return True
-    if filtro == "imagem":
-        return ext in _EXT_IMG
-    if filtro == "midia":
-        return ext in _EXT_VID or ext in _EXT_AUD
-    # 'documento' ou desconhecido
-    return ext not in _EXT_IMG and ext not in _EXT_VID and ext not in _EXT_AUD
-
-
 def _trecho(desc: str, query: str) -> str:
     if not desc:
         return "Nenhum conteúdo..."
@@ -2463,10 +2925,10 @@ def api_search():
         ]
         # Ordena por similaridade visual e pega as 5 melhores
         candidatas_sem_desc.sort(key=lambda idx: clip_sims[idx], reverse=True)
+        descricoes = _descrever_em_paralelo(rows, candidatas_sem_desc[:5], uid)
         for i in candidatas_sem_desc[:5]:
             f = rows[i]
-            desc_nova = _descrever_imagem_on_demand(
-                f["caminho"], f["nome"], folder_id=f["folder_id"], uid=uid)
+            desc_nova = descricoes.get(i)
             if desc_nova:
                 # Atualiza em memória (pra esta busca) e salva no banco (cache).
                 rows[i]["descricao_ia"] = desc_nova
@@ -2838,7 +3300,7 @@ _KW_URBANO = ["cidade", "rua", "predio", "edificio", "avenida", "metropole",
 def _campo_descricao(desc_norm: str, nome_campo: str) -> str:
     """Extrai o conteúdo de um campo da descrição (ex: 'pessoas', 'animais').
     Retorna '' se o campo não existe ou está negado (Nenhum/Nenhuma)."""
-    for linha in desc_norm.splitlines():
+    for linha in _sem_markdown(desc_norm).splitlines():
         linha = linha.strip().lstrip("-• ").strip()
         if ":" not in linha:
             continue
@@ -5614,6 +6076,110 @@ def api_health():
     })
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Conexão com o Claude (tela de configuração)
+# ──────────────────────────────────────────────────────────────────────────────
+#
+# A credencial vale para o servidor inteiro, não para uma conta do Search+.
+# Por isso, além da sessão, as rotas só aceitam pedidos da própria máquina (o
+# servidor já escuta só em 127.0.0.1; isto segura o caso de alguém expô-lo) e
+# recusam escrita vinda de página de outro site. Corpo só em JSON: um
+# formulário de outro site não consegue enviar application/json sem passar
+# pelo CORS.
+
+_ENDERECOS_LOCAIS = {"127.0.0.1", "::1"}
+
+
+def _barrar_config_claude():
+    if not _uid():
+        return jsonify({"error": "Não autenticado."}), 401
+    if request.remote_addr not in _ENDERECOS_LOCAIS:
+        return jsonify({"error": "A conexão com o Claude só pode ser configurada "
+                                 "no computador onde o Search+ roda."}), 403
+    if request.method != "GET":
+        origem = request.headers.get("Origin")
+        if origem and origem not in ALLOWED_ORIGINS:
+            return jsonify({"error": "Pedido vindo de outro site recusado."}), 403
+    return None
+
+
+@app.route("/api/claude", methods=["GET", "POST"])
+def api_claude():
+    """Estado e configuração da conexão. Nunca devolve a credencial."""
+    global CLAUDE_PROVEDOR, CLAUDE_MODEL, CLAUDE_EFFORT
+    barrado = _barrar_config_claude()
+    if barrado:
+        return barrado
+    if request.method == "GET":
+        return jsonify(_resumo_claude())
+
+    if not request.is_json:
+        return jsonify({"error": "Envie os dados em JSON."}), 415
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"error": "Dados inválidos."}), 400
+
+    provedor = str(data.get("provedor") or CLAUDE_PROVEDOR).strip().lower()
+    modelo = str(data.get("modelo") or CLAUDE_MODEL).strip()
+    effort = str(data.get("effort") or CLAUDE_EFFORT).strip().lower()
+    credencial = str(data.get("credencial") or "").strip()
+
+    if provedor not in PROVEDORES_CLAUDE:
+        return jsonify({"error": "Modo de conexão desconhecido."}), 400
+    if modelo not in {m["id"] for m in MODELOS_CLAUDE}:
+        return jsonify({"error": "Modelo desconhecido. Escolha um da lista."}), 400
+    if effort not in EFFORTS_CLAUDE:
+        return jsonify({"error": "Nível de effort desconhecido."}), 400
+    if credencial:
+        motivo = _validar_credencial(provedor, credencial)
+        if motivo:
+            return jsonify({"error": motivo}), 400
+
+    alteracoes = {"CLAUDE_PROVEDOR": provedor, "CLAUDE_MODEL": modelo,
+                  "CLAUDE_EFFORT": effort}
+    if credencial:
+        alteracoes[_var_da_credencial(provedor)] = credencial
+    try:
+        _gravar_no_env(alteracoes)
+    except (OSError, ValueError) as exc:
+        print(f"[AI] Não foi possível gravar backend/.env: {type(exc).__name__}")
+        return jsonify({"error": "Não foi possível salvar em backend/.env. "
+                                 "Confira as permissões da pasta do Search+."}), 500
+
+    CLAUDE_PROVEDOR, CLAUDE_MODEL, CLAUDE_EFFORT = provedor, modelo, effort
+    _iniciar_claude()
+    # Credencial nova é testada na hora: quem acabou de colar quer saber se
+    # funcionou. Só troca de modelo faz a verificação gratuita (modo API).
+    _testar_claude(com_chamada=bool(credencial))
+    return jsonify(_resumo_claude())
+
+
+@app.route("/api/claude/testar", methods=["POST"])
+def api_claude_testar():
+    """Testa a conexão com uma chamada mínima (no modo assinatura, conta na cota)."""
+    barrado = _barrar_config_claude()
+    if barrado:
+        return barrado
+    _testar_claude(com_chamada=True)
+    return jsonify(_resumo_claude())
+
+
+@app.route("/api/claude/credencial", methods=["DELETE"])
+def api_claude_remover_credencial():
+    """Apaga do backend/.env a credencial do modo atual."""
+    barrado = _barrar_config_claude()
+    if barrado:
+        return barrado
+    try:
+        _gravar_no_env({_var_da_credencial(CLAUDE_PROVEDOR): None})
+    except OSError as exc:
+        print(f"[AI] Não foi possível gravar backend/.env: {type(exc).__name__}")
+        return jsonify({"error": "Não foi possível alterar backend/.env. "
+                                 "Confira as permissões da pasta do Search+."}), 500
+    _iniciar_claude()
+    return jsonify(_resumo_claude())
+
+
 @app.route("/api/resumo_indexacao")
 def api_resumo_indexacao():
     """
@@ -6344,33 +6910,6 @@ def _get_folder_config(folder_id, uid):
     return prio, row["perfil_analise"] or "fast", row["janela_processamento"] or "always"
 
 
-# ── Caches de Vetores CLIP (Lazy Loading) ──
-_CLIP_TERMS = {
-    "pessoas": ["a photo of a person", "a photo of a human", "a face", "people"],
-    "animais": ["a photo of an animal", "a dog", "a cat", "wildlife", "pet"],
-    "paisagens": ["a landscape", "nature", "a photo of a city", "scenery", "outdoors"]
-}
-_CLIP_EMBS_CACHE = {}
-_CLIP_THRESHOLDS = {
-    "pessoas": 0.20,
-    "animais": 0.21,
-    "paisagens": 0.21
-}
-
-def _get_precomputed_clip_embs(category: str) -> list:
-    """Retorna os vetores de texto pré-computados para uma categoria."""
-    if category in _CLIP_EMBS_CACHE:
-        return _CLIP_EMBS_CACHE[category]
-    embs = []
-    if CLIP_OK:
-        for term in _CLIP_TERMS.get(category, []):
-            emb = _gerar_embedding_clip_texto(term)
-            if emb:
-                embs.append(emb)
-    _CLIP_EMBS_CACHE[category] = embs
-    return embs
-
-
 # ──────────────────────────────────────────────────────────────────────────────
 # Resumo da indexação
 # ──────────────────────────────────────────────────────────────────────────────
@@ -6775,7 +7314,8 @@ def _build_prompt_visao(prioridades: list) -> str:
         "• 'gato' (NUNCA 'felino' ou 'bichano')\n"
         "• 'mulher' / 'menina' (NUNCA 'senhora', 'moça', 'dama')\n"
         "• 'homem' / 'menino' (NUNCA 'senhor', 'rapaz', 'cavalheiro')\n\n"
-        "FORMATO (sempre em português, um campo por linha):\n"
+        "FORMATO (sempre em português, um campo por linha, em texto simples, "
+        "sem Markdown — nada de asteriscos ou negrito):\n"
         "- Estilo: escolha os termos que se aplicam entre foto, desenho, ilustração, "
         "pintura, anime, mangá, cartoon, quadrinho, pixel art, arte digital, "
         "esboço, render 3D, captura de tela, logotipo, ícone, meme, gráfico, mapa\n"
@@ -6846,54 +7386,45 @@ def _preparar_imagem(filepath: str, max_size=768) -> bytes:
 
 
 def _analyze_image_claude(filepath: str, prompt: str, perfil: str = "fast") -> str | None:
-    """Descreve a imagem usando a API do Claude (vision). Retorna None se falhar.
-    perfil 'deep' = análise mais detalhada e cuidadosa; 'fast' = mais econômica."""
-    if not CLAUDE_OK or _CLAUDE is None:
+    """Descreve a imagem com o Claude (visão). Retorna None se falhar.
+
+    Modelo e effort vêm da tela "Conexão com o Claude". O perfil da pasta muda
+    o pedido: 'deep' pede uma descrição mais minuciosa."""
+    if not CLAUDE_OK:
         return None
     try:
         import base64
         img_bytes = _preparar_imagem(filepath)
         media_type = "image/jpeg"  # _preparar_imagem sempre devolve JPEG
         img_b64 = base64.standard_b64encode(img_bytes).decode("utf-8")
-
-        # Perfil controla o quão detalhada é a descrição (deep gasta mais tokens).
-        # max_tokens é o teto do raciocínio + do texto juntos, por isso a folga.
-        if perfil == "deep":
-            prompt_final = prompt + (
-                "\n\nMODO PROFUNDO: seja minucioso. Identifique raças/espécies "
-                "específicas, marcas, estilo artístico, texto visível na imagem e "
-                "detalhes do ambiente. Não deixe passar nada relevante para a busca."
-            )
-            max_tok, esforco = 3000, "medium"
-        else:
-            prompt_final = prompt
-            max_tok, esforco = 2000, "low"
-
-        resp = _CLAUDE.messages.create(
-            model=CLAUDE_MODEL,
-            max_tokens=max_tok,
-            output_config={"effort": esforco},
-            messages=[{
-                "role": "user",
-                "content": [
-                    {"type": "image", "source": {
-                        "type": "base64", "media_type": media_type, "data": img_b64,
-                    }},
-                    {"type": "text", "text": prompt_final},
-                ],
-            }],
-        )
-        if resp.stop_reason == "refusal":
-            print(f"[VLM:claude] Recusou descrever {os.path.basename(filepath)}")
-            return None
-        # Concatena os blocos de texto da resposta (geralmente é um só)
-        desc = "".join(b.text for b in resp.content if b.type == "text").strip()
-        if desc:
-            print(f"[VLM:claude] OK: {os.path.basename(filepath)}")
-            return desc
     except Exception as exc:
-        print(f"[VLM:claude] Falhou para {filepath}: {exc}")
-    return None
+        print(f"[VLM:claude] Não foi possível ler {os.path.basename(filepath)}: {exc}")
+        return None
+
+    if perfil == "deep":
+        prompt = prompt + (
+            "\n\nMODO PROFUNDO: seja minucioso. Identifique raças/espécies "
+            "específicas, marcas, estilo artístico, texto visível na imagem e "
+            "detalhes do ambiente. Não deixe passar nada relevante para a busca."
+        )
+    conteudo = [
+        {"type": "image", "source": {
+            "type": "base64", "media_type": media_type, "data": img_b64,
+        }},
+        {"type": "text", "text": prompt},
+    ]
+    try:
+        r = _chamar_claude(conteudo, contexto=f"Descrição de {os.path.basename(filepath)}")
+    except FalhaClaude:
+        return None
+    if r["recusado"]:
+        print(f"[VLM:claude] Recusou descrever {os.path.basename(filepath)}")
+        return None
+    if r["cortado"] or not r["texto"]:
+        print(f"[VLM:claude] Resposta vazia ou cortada para {os.path.basename(filepath)}")
+        return None
+    print(f"[VLM:claude] OK: {os.path.basename(filepath)}")
+    return _sem_markdown(r["texto"]).strip()
 
 
 def _analyze_image(filepath: str, *, prioridades=None, perfil="fast") -> str:
@@ -6925,6 +7456,34 @@ def _descrever_imagem_on_demand(caminho: str, nome: str, *, folder_id=None, uid=
     if desc:
         print(f"[Lazy] Descrita sob demanda: {nome}")
     return desc
+
+
+def _descrever_em_paralelo(rows, indices, uid) -> dict:
+    """
+    Descreve as imagens candidatas de uma busca ao mesmo tempo.
+
+    Cada descrição é uma chamada de alguns segundos ao Claude (3,8 s medidos no
+    Haiku 5.5 em effort high). Em fila, as até 5 imagens somavam ~19 s antes do
+    re-rank; são independentes, então em paralelo custam o tempo de uma só.
+    Devolve {índice em rows: descrição}, só com as que deram certo — uma falha
+    numa imagem não pode derrubar as outras nem a busca.
+    """
+    if not indices:
+        return {}
+    from concurrent.futures import ThreadPoolExecutor
+
+    def _uma(i):
+        f = rows[i]
+        try:
+            return i, _descrever_imagem_on_demand(
+                f["caminho"], f["nome"], folder_id=f["folder_id"], uid=uid)
+        except Exception as exc:
+            print(f"[Lazy] Falha ao descrever {f['nome']}: {type(exc).__name__}")
+            return i, None
+
+    with ThreadPoolExecutor(max_workers=len(indices),
+                            thread_name_prefix="descricao") as executor:
+        return {i: d for i, d in executor.map(_uma, indices) if d}
 
 
 def _salvar_descricao_e_embedding(uid: int, caminho: str, desc: str) -> None:

@@ -1128,6 +1128,7 @@ async function loginBemSucedido(username) {
     document.getElementById('authOverlay').style.display = 'none';
     verificarOnboarding();
     mostrarHome();
+    carregarEstadoClaude();
 }
 
 // A home é a galeria por categoria (Pessoas, Animais, Lugares…). Ela precisa
@@ -1163,6 +1164,7 @@ async function fazerLogout() {
     await fetch(`${API_BASE_URL}/api/logout`, { method: 'POST' });
     limparBusca();
     document.getElementById('profileDropdown').style.display = 'none';
+    esconderIndicadorClaude();
     document.getElementById('authOverlay').style.display = 'flex';
 }
 
@@ -1972,6 +1974,241 @@ function fecharModalConfigGerais() {
     document.getElementById('modalConfigGerais').style.display = 'none';
 }
 
+// ==========================================
+// CONEXÃO COM O CLAUDE
+// ==========================================
+// A credencial vai do campo direto para o servidor, que a grava em
+// backend/.env e nunca a devolve: o painel só conhece os 4 últimos
+// caracteres. O campo é limpo depois de salvar, e nada disto passa pelo
+// localStorage — uma credencial guardada no navegador ficaria legível para
+// qualquer script da página.
+let _claudeResumo = null;
+
+// estado do servidor -> [cor do ponto, rótulo curto]
+const _ESTADOS_CLAUDE = {
+    conectado:           ['ok',    'Conectado'],
+    nao_verificado:      ['falta', 'Configurado, ainda não testado'],
+    iniciando:           ['extra', 'Iniciando'],
+    sem_credencial:      ['extra', 'Não configurado'],
+    credencial_invalida: ['erro',  'Credencial recusada'],
+    sem_credito:         ['erro',  'Sem créditos na API'],
+    limite:              ['falta', 'Limite de uso atingido'],
+    modelo_indisponivel: ['erro',  'Modelo indisponível'],
+    nao_instalado:       ['erro',  'Claude Code não encontrado'],
+    sem_conexao:         ['erro',  'Sem conexão com a Anthropic'],
+    indisponivel:        ['falta', 'Anthropic instável'],
+    erro:                ['erro',  'Falha na conexão'],
+};
+
+function _estadoClaude(resumo) {
+    return _ESTADOS_CLAUDE[resumo && resumo.estado] || ['extra', 'Estado desconhecido'];
+}
+
+// Sem await em quem chama: o indicador nunca pode atrasar a tela.
+async function carregarEstadoClaude() {
+    try {
+        const r = await fetch(`${API_BASE_URL}/api/claude`);
+        if (!r.ok) return null;   // sem sessão: o indicador continua escondido
+        _claudeResumo = await r.json();
+        pintarIndicadorClaude();
+        return _claudeResumo;
+    } catch (e) {
+        return null;              // servidor fora do ar já tem aviso próprio
+    }
+}
+
+function pintarIndicadorClaude() {
+    const btn = document.getElementById('claudeIndicador');
+    if (!btn || !_claudeResumo) return;
+    const [cor, rotulo] = _estadoClaude(_claudeResumo);
+    btn.style.display = '';
+    const ponto = btn.querySelector('.status-ponto');
+    ponto.classList.remove(...[...ponto.classList].filter(c => c.startsWith('status-ponto-')));
+    ponto.classList.add('status-ponto-' + cor);
+    btn.dataset.tip = 'Claude: ' + rotulo;
+    btn.setAttribute('aria-label', 'Conexão com o Claude: ' + rotulo +
+                     (_claudeResumo.mensagem ? '. ' + _claudeResumo.mensagem : ''));
+}
+
+function esconderIndicadorClaude() {
+    const btn = document.getElementById('claudeIndicador');
+    if (btn) btn.style.display = 'none';
+    _claudeResumo = null;
+}
+
+async function abrirClaudeModal() {
+    document.getElementById('profileDropdown').style.display = 'none';
+    document.getElementById('claudeCredencial').value = '';
+    document.getElementById('claudeModal').style.display = 'flex';
+    const r = await carregarEstadoClaude();
+    if (!r) {
+        toastErro('Não foi possível ler a conexão com o Claude. Confira se o servidor está ligado.');
+        return;
+    }
+    preencherClaudeModal(r);
+}
+
+function fecharClaudeModal() {
+    document.getElementById('claudeCredencial').value = '';
+    document.getElementById('claudeModal').style.display = 'none';
+}
+
+function _opcoes(select, itens, atual) {
+    select.replaceChildren(...itens.map(([valor, texto]) => {
+        const op = document.createElement('option');
+        op.value = valor;
+        op.textContent = texto;
+        op.selected = valor === atual;
+        return op;
+    }));
+}
+
+const _DESCR_EFFORT = {
+    low: 'low — o mais rápido e barato',
+    medium: 'medium — equilibrado',
+    high: 'high — cuidadoso',
+    xhigh: 'xhigh — muito cuidadoso, bem mais lento',
+    max: 'max — o máximo, o mais lento e caro',
+};
+
+function preencherClaudeModal(r) {
+    document.getElementById('claudeProvedor').value = r.provedor;
+    _opcoes(document.getElementById('claudeModelo'),
+            r.modelos.map(m => [m.id, `${m.nome} — ${m.descricao}`]), r.modelo);
+    _opcoes(document.getElementById('claudeEffort'),
+            r.efforts.map(e => [e, _DESCR_EFFORT[e] || e]), r.effort);
+
+    const [cor, rotulo] = _estadoClaude(r);
+    document.getElementById('claudeEstadoPonto').className = 'status-ponto status-ponto-' + cor;
+    document.getElementById('claudeEstadoTitulo').textContent = rotulo;
+    document.getElementById('claudeEstadoMensagem').textContent = r.mensagem || '';
+
+    const uso = document.getElementById('claudeUso');
+    const u = r.uso;
+    if (r.provedor === 'assinatura' && u && (u.janela_5h != null || u.janela_semanal != null)) {
+        const partes = [];
+        if (u.janela_5h != null) partes.push(`${u.janela_5h}% da janela de 5 horas`);
+        if (u.janela_semanal != null) partes.push(`${u.janela_semanal}% da semana`);
+        uso.textContent = 'Uso do seu plano: ' + partes.join(' · ');
+        uso.hidden = false;
+    } else {
+        uso.hidden = true;
+    }
+    atualizarAjudaClaude();
+}
+
+// Textos que mudam com o modo escolhido no seletor (antes mesmo de salvar).
+function atualizarAjudaClaude() {
+    const r = _claudeResumo || {};
+    const provedor = document.getElementById('claudeProvedor').value;
+    const mesmoModo = provedor === r.provedor;
+    const configurada = mesmoModo && r.configurada;
+    const campo = document.getElementById('claudeCredencial');
+    const ajuda = document.getElementById('claudeAjudaProvedor');
+    const ajudaCampo = document.getElementById('claudeCredencialAjuda');
+
+    if (provedor === 'assinatura') {
+        ajuda.textContent =
+            'Usa a sua assinatura (Pro, Max…) pelo Claude Code instalado neste computador, ' +
+            'e consome os limites do seu plano. Uso pessoal: o token é da sua conta — ' +
+            'não o compartilhe nem distribua o Search+ configurado com ele.' +
+            (r.claude_code_instalado === false
+                ? ' Atenção: o Claude Code não foi encontrado neste computador.' : '');
+        document.getElementById('claudeCredencialRotulo').textContent = 'Token da assinatura';
+        ajudaCampo.textContent = 'Gere no terminal com: claude setup-token';
+        campo.placeholder = configurada
+            ? `Configurado (termina em …${r.final_credencial}). Cole outro para trocar.`
+            : 'sk-ant-oat01-…';
+    } else {
+        ajuda.textContent =
+            'Usa uma chave do Claude Console. O uso é cobrado em créditos da API, ' +
+            'separado da assinatura Claude Pro.';
+        document.getElementById('claudeCredencialRotulo').textContent = 'Chave de API';
+        ajudaCampo.textContent = 'Crie em platform.claude.com, em API Keys.';
+        campo.placeholder = configurada
+            ? `Configurada (termina em …${r.final_credencial}). Cole outra para trocar.`
+            : 'sk-ant-api03-…';
+    }
+    if (!mesmoModo && r.provedor) {
+        ajudaCampo.textContent += ' Ao salvar, o Search+ passa a usar este modo.';
+    }
+    document.getElementById('claudeBtnRemover').disabled = !configurada;
+}
+
+function _claudeOcupado(ocupado, rotuloTestar) {
+    ['claudeBtnRemover', 'claudeBtnTestar', 'claudeBtnSalvar'].forEach(id => {
+        document.getElementById(id).disabled = ocupado;
+    });
+    document.getElementById('claudeBtnTestar').textContent = rotuloTestar || 'Testar conexão';
+    document.getElementById('claudeModal').setAttribute('aria-busy', ocupado ? 'true' : 'false');
+    if (!ocupado) atualizarAjudaClaude();
+}
+
+async function _pedirClaude(rota, metodo, corpo, padrao, rotuloOcupado) {
+    _claudeOcupado(true, rotuloOcupado);
+    try {
+        const opcoes = { method: metodo, headers: fetchOptions.headers };
+        if (corpo) opcoes.body = JSON.stringify(corpo);
+        const r = await fetch(`${API_BASE_URL}${rota}`, opcoes);
+        if (!r.ok) {
+            toastErro(await _erroDaResposta(r, padrao));
+            return null;
+        }
+        _claudeResumo = await r.json();
+        pintarIndicadorClaude();
+        preencherClaudeModal(_claudeResumo);
+        return _claudeResumo;
+    } catch (e) {
+        toastErro('Sem resposta do servidor. Confira se ele está ligado.');
+        return null;
+    } finally {
+        _claudeOcupado(false);
+    }
+}
+
+function _avisarResultadoClaude(r, textoOk) {
+    if (!r) return;
+    const [cor] = _estadoClaude(r);
+    if (r.estado === 'conectado') toastOk(textoOk);
+    else if (cor === 'erro') toastErro(r.mensagem || 'A conexão com o Claude falhou.');
+    else if (r.mensagem) toastAviso(r.mensagem);
+    else toastOk('Configuração salva.');
+}
+
+async function salvarClaude() {
+    const campo = document.getElementById('claudeCredencial');
+    const corpo = {
+        provedor: document.getElementById('claudeProvedor').value,
+        modelo: document.getElementById('claudeModelo').value,
+        effort: document.getElementById('claudeEffort').value,
+    };
+    const credencial = campo.value.trim();
+    if (credencial) corpo.credencial = credencial;
+    const r = await _pedirClaude('/api/claude', 'POST', corpo,
+                                 'Não foi possível salvar a conexão',
+                                 credencial ? 'Testando…' : undefined);
+    if (r) campo.value = '';   // no erro o texto fica, para a pessoa corrigir
+    _avisarResultadoClaude(r, credencial ? 'Conectado ao Claude.' : 'Configuração salva.');
+}
+
+async function testarClaude() {
+    const r = await _pedirClaude('/api/claude/testar', 'POST', null,
+                                 'Não foi possível testar a conexão', 'Testando…');
+    _avisarResultadoClaude(r, 'Conexão com o Claude funcionando.');
+}
+
+async function removerCredencialClaude() {
+    const ok = await confirmarAcao(
+        'Remover a credencial?',
+        'O Search+ para de descrever imagens novas e de julgar os resultados até ' +
+        'você configurar outra. As descrições já feitas continuam valendo.',
+        'Remover');
+    if (!ok) return;
+    const r = await _pedirClaude('/api/claude/credencial', 'DELETE', null,
+                                 'Não foi possível remover a credencial');
+    if (r) toastInfo('Credencial removida.');
+}
+
 function selecionarTabCg(tab, el) {
     const selectedId = tab.replace('cg-', 'cgTab').replace(/^(cgTab)(.)(.*)/, (m, p1, p2, p3) => p1 + p2.toUpperCase() + p3);
     const div = document.getElementById(selectedId);
@@ -2345,10 +2582,6 @@ function alternarBuscaSoFavoritos() {
     if (document.getElementById('searchInput').value.trim()) realizarBusca();
 }
 
-function temFiltrosAtivos() {
-    return Object.keys(coletarFiltrosAvancados()).length > 0;
-}
-
 function aplicarFiltrosAvancados() {
     const n = Object.keys(coletarFiltrosAvancados()).length;
     document.getElementById('btnFiltrosAvancados').classList.toggle('tem-filtro', n > 0);
@@ -2436,6 +2669,8 @@ async function realizarBusca() {
             loadingScreen.style.display = 'none';
             renderizarResultados();
             popularDashboard(window.resultadosAtuais);
+            // A busca pode ter revelado um problema (cota acabou, chave sem crédito).
+            carregarEstadoClaude();
 
             // CORREÇÃO: Força a visibilidade dos resultados
             document.getElementById('searchResultsView').classList.remove('fade-out');
@@ -3719,7 +3954,6 @@ async function carregarFavoritos() {
 // com cor própria e ignora `color`, então a regra `.is-fav` não conseguia
 // pintá-lo. O favoritado chegava a renderizar string vazia — um círculo em
 // branco, sem indicação nenhuma de que estava favoritado.
-const ICONE_FAV = { sim: true, nao: false };   // mantido só por compatibilidade
 
 function aplicarEstadoFavorito(btn, isFav) {
     if (!btn) return;

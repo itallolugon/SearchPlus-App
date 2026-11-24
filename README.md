@@ -16,8 +16,8 @@ Aplicativo de **busca semântica para imagens e documentos**. Em vez de procurar
 
 | Camada | Tecnologia | Onde roda |
 |--------|-----------|-----------|
-| Descrição de imagens | Claude (vision) | API (nuvem) |
-| Julgamento de relevância | Claude | API (nuvem) |
+| Descrição de imagens | Claude Haiku 5.5 (visão), effort `high` — ajustável | Sua assinatura via Claude Code, ou API (nuvem) |
+| Julgamento de relevância | Claude, mesmo modelo | Idem |
 | Embeddings de texto | SBERT multilingual (384 dim) | Local |
 | Embeddings visuais | CLIP ViT-B-32 (512 dim) | Local |
 | Banco de dados | Postgres + pgvector | Supabase (nuvem) |
@@ -71,7 +71,7 @@ Guia completo para colocar o Search+ funcionando numa máquina nova (Windows). E
 
 - **Windows** (os seletores de pasta usam diálogos nativos do Windows)
 - **Internet** — o app usa a IA e o banco de dados na nuvem
-- Uma **chave de API do Claude** e a **string de conexão do banco** (detalhes no Passo 3)
+- A **string de conexão do banco** (Passo 3) e um acesso ao **Claude** — sua assinatura via Claude Code ou uma chave de API (Passo 6)
 - Cerca de **15 minutos** e **~2 GB de espaço** livre
 
 ---
@@ -113,29 +113,24 @@ Crie um arquivo chamado `.env` **dentro da pasta `backend`** (o caminho final é
 # Conexão com o banco Postgres (Supabase)
 DATABASE_URL=postgresql://usuario:senha@host:5432/postgres
 
-# Chave da API do Claude (Anthropic)
-ANTHROPIC_API_KEY=sk-ant-sua-chave-aqui
 ```
 
 Regras que evitam dor de cabeça:
 
-- **Sem espaços** em volta do `=` — `ANTHROPIC_API_KEY=sk-ant-...`, nunca `ANTHROPIC_API_KEY= sk-ant-...`
+- **Sem espaços** em volta do `=` — `DATABASE_URL=postgresql://...`, nunca `DATABASE_URL= postgresql://...`
 - **Sem aspas** em volta dos valores
 - O arquivo se chama exatamente `.env` (com o ponto, sem `.txt` no fim)
 
-### De onde vêm esses dois valores
+O acesso ao Claude **não** vai aqui à mão: ele é configurado pela tela do app (Passo 6).
 
-**`ANTHROPIC_API_KEY`** — crie em [console.anthropic.com](https://console.anthropic.com):
-1. Faça login, vá em **Billing** e adicione crédito (a partir de US$ 5).
-2. Vá em **API Keys** → **Create Key** → copie a chave (começa com `sk-ant-`).
-3. A chave é exibida só uma vez; guarde-a em lugar seguro.
+### De onde vem a `DATABASE_URL`
 
-**`DATABASE_URL`** — você tem duas opções:
+Você tem duas opções:
 
 - **Usar um banco já existente**: peça a string de conexão a quem administra o projeto. Os dados (contas e arquivos indexados) serão compartilhados entre todos que usarem a mesma string.
 - **Criar seu próprio banco** (recomendado para uso independente): crie um projeto gratuito no [supabase.com](https://supabase.com), ative a extensão **`vector`** em *Database → Extensions*, e rode o conteúdo de [backend/schema.sql](backend/schema.sql) no *SQL Editor*. A string de conexão fica em *Project Settings → Database → Connection string (URI)*.
 
-> ⚠️ **Nunca comite o `.env` nem compartilhe essas credenciais publicamente.** Quem tem a chave da API pode gastar seu crédito, e quem tem a string do banco pode ler e apagar todos os dados. O arquivo já está no `.gitignore`.
+> ⚠️ **Nunca comite o `.env` nem compartilhe essas credenciais publicamente.** Quem tem a credencial do Claude gasta a sua cota ou o seu crédito, e quem tem a string do banco pode ler e apagar todos os dados. O arquivo já está no `.gitignore`.
 
 ## Passo 4 — Instalar as dependências
 
@@ -172,9 +167,14 @@ Abra **http://127.0.0.1:5000** no navegador. **Mantenha a janela do terminal abe
 ## Passo 6 — Usar
 
 1. Crie uma conta na tela inicial.
-2. Adicione uma pasta do computador que contenha imagens.
-3. Escolha o modo de análise (**Relâmpago** = descrições mais econômicas, **Profundo** = mais minuciosas) e confirme. A indexação só começa depois da sua confirmação.
-4. Busque em português natural: *"cachorro na grama"*, *"nota fiscal"*, *"prato de comida"*.
+2. Configure o Claude: clique no ícone **Claude** no dock (barra da esquerda) e escolha como conectar:
+   - **Assinatura (Claude Code) — uso pessoal.** Usa o seu plano Pro/Max/... Com o [Claude Code](https://code.claude.com) instalado, rode `claude setup-token` no terminal, aprove no navegador e cole o token (`sk-ant-oat…`) na tela. O Search+ chama o Claude Code deste computador e consome os limites do seu plano — a tela mostra quanto já foi usado. O token é da sua conta: não o compartilhe nem distribua o Search+ configurado com ele.
+   - **Chave de API.** Crie uma chave em [platform.claude.com](https://platform.claude.com) → *API Keys* (`sk-ant-api…`) e adicione créditos em *Billing*. É cobrada à parte: **a assinatura Claude Pro não inclui uso de API**.
+
+   O padrão é o **Claude Haiku 5.5** com effort **high**; dá para trocar na mesma tela. A credencial é gravada em `backend/.env` e nunca volta para o navegador.
+3. Adicione uma pasta do computador que contenha imagens.
+4. Escolha o modo de análise (**Relâmpago** = descrições mais econômicas, **Profundo** = mais minuciosas) e confirme. A indexação só começa depois da sua confirmação.
+5. Busque em português natural: *"cachorro na grama"*, *"nota fiscal"*, *"prato de comida"*.
 
 A **primeira busca** por um assunto novo demora alguns segundos, porque o Claude está descrevendo as imagens candidatas naquele momento. As buscas seguintes usam o cache e respondem em cerca de 1 segundo.
 
@@ -188,8 +188,7 @@ Para desligar, feche a janela do terminal (ou `Ctrl+C`). Para religar, rode `py 
 |---|---|
 | `py não é reconhecido` | O Python foi instalado sem marcar *Add Python to PATH*. Reinstale marcando a caixa. |
 | A janela abre e fecha imediatamente | Dependências não instaladas. Refaça o Passo 4 e leia a mensagem de erro no terminal. |
-| `ANTHROPIC_API_KEY não encontrada no .env` | O arquivo não existe, está no lugar errado (precisa ser `backend/.env`) ou a chave tem espaço/aspas. |
-| Busca funciona, mas imagens não são descritas | Chave inválida ou sem crédito. Confira em *Billing* no console da Anthropic. |
+| Busca funciona, mas imagens não são descritas | Veja o ponto do **Claude** no dock: a tela diz o motivo (token recusado, cota da assinatura esgotada, chave sem crédito, Claude Code não instalado) e permite testar de novo. |
 | Erro de conexão com o banco | `DATABASE_URL` incorreta, ou o computador está sem internet. |
 | A busca não sobe depois de um download interrompido | Verifique a conexão e rode uma vez com `set SEARCHPLUS_OFFLINE=0` antes do `py backend/app.py`, que força o app a conferir os modelos na rede. |
 

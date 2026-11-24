@@ -132,6 +132,7 @@ O protótipo atual já resolve estes fluxos. Use-o rodando como especificação 
 - Aparência: tema claro/escuro, cores primária e secundária, imagem de fundo com desfoque
 - Pastas monitoradas: adicionar, remover, configurar prioridade, perfil e janela de processamento
 - Preferências: idioma, notificações, atalho de busca, modo privado, modo de desempenho
+- Conexão com o Claude (`/api/claude`): indicador de estado sempre visível, e um painel para escolher o modo (assinatura via Claude Code ou chave de API), colar a credencial, escolher modelo e effort, testar e remover. O campo da credencial é `type="password"`, é limpo depois de salvar e **nunca** vai para `localStorage` — o servidor também nunca a devolve (só `final_credencial`). Releia o estado depois de cada busca: a cota do plano pode acabar no meio do uso
 
 ### Indexação
 - Barra de progresso durante o processamento (`GET /api/status`, consultado periodicamente)

@@ -60,7 +60,7 @@ relevância usam a API do Claude; o banco é PostgreSQL com pgvector no Supabase
 | Backend | Flask (Python ≥ 3.11) em `backend/app.py`: API REST, worker de indexação, jobs de exportação, entrega do front | Local |
 | Embeddings de texto | SBERT `paraphrase-multilingual-MiniLM-L12-v2` (384 dim) | Local |
 | Embeddings visuais | CLIP `clip-ViT-B-32` + `clip-ViT-B-32-multilingual-v1` (512 dim) | Local |
-| Descrição de imagens e re-rank | Claude (`claude-sonnet-5-5`, configurável em `CLAUDE_MODEL`) | API (nuvem) |
+| Descrição de imagens e re-rank | Claude Haiku 5.5 (`claude-haiku-5-5`), effort `high` — ambos ajustáveis na tela | Assinatura via Claude Code, ou API (nuvem) |
 | Banco de dados | PostgreSQL + pgvector, índices HNSW | Supabase (nuvem) |
 | Desenvolvimento do front | `backend/mock_server.py` — mesma API, dados fixos | Local (porta 5001) |
 
@@ -198,6 +198,7 @@ desde então.
 | 31/08/2026 | Coleções com exportação, pasta vinculada, lixeira, refinamento da busca, resumo de indexação ([relatório](docs/SearchPlus_Implementacoes_2026-08-31.pdf)) |
 | 10/10/2026 | Linha de base limpa do repositório atual (`ad669d7`) |
 | 19/10/2026 | Modelo padrão trocado para o Claude Sonnet 5.5 (`66f4052`) |
+| 24/11/2026 | Tela "Conexão com o Claude": modo assinatura (Claude Code + `claude setup-token`) ou chave de API, indicador no dock, Haiku 5.5 com effort high como padrão |
 | 21/10/2026 | Documentação técnica da PMI IV; correções desta revisão (ver abaixo) |
 
 **Correções de 21/10/2026:**

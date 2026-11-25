@@ -158,7 +158,7 @@ em sincronia e conferidos por `tests/integration/test_paridade_mock.py`.
 
 ## 8. Qualidade: testes, carga e CI
 
-- **921 testes** (unitários + integração contra o mock) em ~11 s, sem banco, sem
+- **974 testes** (unitários + integração contra o mock) em ~12 s, sem banco, sem
   modelos e sem chave da API; cobertura do backend **~70%** (piso de 64% no CI).
 - **Carga (Locust)** contra o mock em 30/08/2026: `smoke`, `load` e `stress` (até
   150 usuários) com **0 falhas** e p95 ≤ 280 ms.

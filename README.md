@@ -4,6 +4,44 @@ Aplicativo de **busca semântica para imagens e documentos**. Em vez de procurar
 
 ---
 
+## O problema e a proposta de valor
+
+**Problema:** a busca do computador procura pelo *nome* do arquivo, e ninguém
+nomeia `DSC_0042.jpg` de "cachorro no parque ao pôr do sol". O texto dentro de
+prints e PDFs fica invisível, e as galerias na nuvem exigem enviar o acervo
+inteiro para o servidor de outra empresa.
+
+**Para quem:** quem acumula muitos arquivos e não lembra os nomes: fotógrafos e
+criadores de conteúdo, estudantes e pesquisadores, profissionais com documentos,
+recibos e capturas de tela.
+
+**Proposta de valor:** encontrar qualquer imagem ou documento descrevendo o que
+ele contém, em linguagem natural, sem mover os arquivos das pastas onde já
+estão. A indexação roda no próprio computador; a IA só entra na hora da busca.
+
+A página de apresentação do produto fica em [`landing/`](landing/index.html)
+(com o app ligado: `http://127.0.0.1:5000/landing/`).
+
+## Equipe — PMI IV · ADS · 2026/2
+
+| Integrante | Papel |
+|---|---|
+| Lorenzo Osorio | Líder; UI/UX Designer |
+| Itallo Lugon | Desenvolvimento |
+| Kevin Kuznier | Documentação e desenvolvimento |
+| João Miguel | Documentação |
+
+## Documentação do projeto
+
+| O quê | Onde |
+|---|---|
+| Documentação técnica completa (24 seções, versão 1.2) | [`docs/PDF_Preenchido_Projeto.pdf`](docs/PDF_Preenchido_Projeto.pdf) |
+| Scrum: Sprints 1 a 5, papéis e Definition of Done | [`docs/06-dossie-tecnico-sprints.md`](docs/06-dossie-tecnico-sprints.md) |
+| Modelagem: casos de uso, sequência, DER e ORM | [`docs/`](docs/README.md) (imagens em [`docs/img/`](docs/img/)) |
+| Organização do Git | [`docs/07-git-fluxo.md`](docs/07-git-fluxo.md) |
+| Contrato da API | [`docs/API.md`](docs/API.md) |
+| Requisitos funcionais e não funcionais | [`docs/09`](docs/09-requisitos-funcionais.md) · [`docs/10`](docs/10-requisitos-nao-funcionais.md) |
+
 ## O que ele faz
 
 - **Indexa pastas do computador**: gera um vetor visual de cada imagem e extrai o texto dos documentos.
@@ -24,7 +62,7 @@ Aplicativo de **busca semântica para imagens e documentos**. Em vez de procurar
 | Frontend | HTML/CSS/JS puro | Sem framework nem build step |
 | Backend | Flask (Python) | API + serve o frontend + worker de indexação |
 
-Os **embeddings rodam localmente** (o motor da busca vetorial). A **descrição e o julgamento** usam a API do Claude. O banco fica no Supabase, então os mesmos dados são acessíveis de qualquer máquina.
+Os **embeddings rodam localmente** (o motor da busca vetorial). A **descrição e o julgamento** usam o Claude, pela assinatura (via Claude Code) ou pela API. O banco fica no Supabase, então os mesmos dados são acessíveis de qualquer máquina.
 
 ## Pipeline de busca (indexação lazy)
 
@@ -209,7 +247,7 @@ SearchPlus-App/
 └── backend/
     ├── app.py          # Servidor Flask: API, worker de indexação e busca
     ├── mock_server.py  # Mesma API com dados fictícios, sem banco nem IA
-    ├── schema.sql      # DDL do banco (5 tabelas + índices HNSW)
+    ├── schema.sql      # DDL do banco (9 tabelas + índices HNSW)
     ├── requirements.txt
     └── .env            # Credenciais (você cria; não vai para o Git)
 ```
@@ -231,7 +269,7 @@ py dev.py testes
 py dev.py cobertura
 ```
 
-São 852 testes em ~10 segundos, cobrindo as regras de busca, o parsing da
+São 921 testes em ~11 segundos, cobrindo as regras de busca, o parsing da
 descrição da IA, o tratamento de caminhos, a autenticação, a allowlist de
 arquivos estáticos e os endpoints de dados. Há ainda testes de carga (Locust) e
 um pipeline de CI no GitHub Actions.
@@ -241,4 +279,4 @@ não tem cobertura: **[docs/TESTING.md](docs/TESTING.md)**.
 
 ## Status do projeto
 
-Protótipo funcional. A descrição de imagens e o julgamento de relevância usam a API do Claude; os embeddings rodam localmente. Consulte o [RELATORIO.md](RELATORIO.md) para o estado técnico detalhado, decisões de arquitetura e pendências.
+Protótipo funcional. A descrição de imagens e o julgamento de relevância usam o Claude (assinatura ou API); os embeddings rodam localmente. Consulte o [RELATORIO.md](RELATORIO.md) para o estado técnico detalhado, decisões de arquitetura e pendências.

@@ -48,7 +48,7 @@ pesquisa em **linguagem natural** em vez de procurar por nome de arquivo:
 
 O servidor roda na máquina do usuário (`http://127.0.0.1:5000`). Os embeddings
 (SBERT e CLIP) rodam localmente; a descrição de imagens e o julgamento de
-relevância usam a API do Claude; o banco é PostgreSQL com pgvector no Supabase.
+relevância usam o Claude, pela assinatura (via Claude Code) ou pela API; o banco é PostgreSQL com pgvector no Supabase.
 
 ---
 
@@ -158,8 +158,8 @@ em sincronia e conferidos por `tests/integration/test_paridade_mock.py`.
 
 ## 8. Qualidade: testes, carga e CI
 
-- **852 testes** (unitários + integração contra o mock) em ~10 s, sem banco, sem
-  modelos e sem chave da API; cobertura do backend **~67%** (piso de 64% no CI).
+- **921 testes** (unitários + integração contra o mock) em ~11 s, sem banco, sem
+  modelos e sem chave da API; cobertura do backend **~70%** (piso de 64% no CI).
 - **Carga (Locust)** contra o mock em 30/08/2026: `smoke`, `load` e `stress` (até
   150 usuários) com **0 falhas** e p95 ≤ 280 ms.
 - **CI (GitHub Actions)**: lint de testes e backend, testes com cobertura,

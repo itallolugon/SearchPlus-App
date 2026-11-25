@@ -192,13 +192,21 @@ def test_upload_ignora_tipo_nao_suportado(client_logado, envios, db_roteado):
     ],
 )
 def test_upload_nao_escapa_da_pasta(client_logado, envios, db_roteado, nome):
+    """
+    O que importa é onde o arquivo cai, não o nome exato: no Linux o parser do
+    multipart já consome as barras invertidas do cabeçalho antes do app ver o
+    nome ('C:\\Windows\\fora.jpg' chega como 'C:Windowsfora.jpg'), e no Windows
+    não. Nos dois casos o arquivo tem que ficar dentro da pasta do usuário.
+    """
     pasta_base, _ = envios
     db_roteado({"SELECT id FROM folders": {"fetchone": {"id": 7}}})
 
     _enviar(client_logado, _arquivo(nome))
 
     gravados = [os.path.join(r, f) for r, _, fs in os.walk(pasta_base.parent) for f in fs]
-    assert gravados == [str(pasta_base / "4242" / "fora.jpg")]
+    assert len(gravados) == 1
+    assert os.path.dirname(gravados[0]) == str(pasta_base / "4242")
+    assert gravados[0].endswith("fora.jpg")
 
 
 def test_upload_nao_sobrescreve_arquivo_com_mesmo_nome(client_logado, envios, db_roteado):

@@ -16,10 +16,10 @@ Claude Haiku 5.5.
 
 | Arquivo | Entrega do professor |
 |---|---|
-| [`01-casos-de-uso.puml`](01-casos-de-uso.puml) | ✅ Diagrama de Casos de Uso refinado |
-| [`02-sequencia-login.puml`](02-sequencia-login.puml) | ✅ Diagrama de Sequência — Login |
-| [`03-sequencia-crud-colecoes.puml`](03-sequencia-crud-colecoes.puml) | ✅ Diagrama de Sequência — CRUD |
-| [`04-der.puml`](04-der.puml) | ✅ DER (SQL) |
+| [`01-casos-de-uso.puml`](01-casos-de-uso.puml) · [imagem](img/CasosDeUso_SearchPlus.png) | ✅ Diagrama de Casos de Uso refinado |
+| [`02-sequencia-login.puml`](02-sequencia-login.puml) · [imagem](img/Sequencia_Login_SearchPlus.png) | ✅ Diagrama de Sequência — Login |
+| [`03-sequencia-crud-colecoes.puml`](03-sequencia-crud-colecoes.puml) · [imagem](img/Sequencia_CRUD_Colecoes_SearchPlus.png) | ✅ Diagrama de Sequência — CRUD |
+| [`04-der.puml`](04-der.puml) · [imagem](img/DER_SearchPlus.png) | ✅ DER (SQL) |
 | [`05-modelagem-dados-DER-ORM.md`](05-modelagem-dados-DER-ORM.md) | ✅ DER + ORM explicado |
 | [`06-dossie-tecnico-sprints.md`](06-dossie-tecnico-sprints.md) | ✅ Dossiê Técnico de Sprint (Sprints 1 a 5, com papéis e Definition of Done) |
 | [`../backend/schema.sql`](../backend/schema.sql) | DDL real do banco (base do DER) |
@@ -92,9 +92,17 @@ avisa — a entrega não depende do conversor.
 
 ## Como visualizar os diagramas (.puml)
 
-Os diagramas estão em **PlantUML** (texto → imagem; versiona bem no Git). Para ver:
+Os diagramas estão em **PlantUML** (texto → imagem; versiona bem no Git). As
+imagens prontas ficam em [`img/`](img/). Para ver ou editar o fonte:
 1. **Online:** copie o conteúdo do `.puml` e cole em https://www.plantuml.com/plantuml
 2. **VS Code:** instale a extensão "PlantUML" e use Alt+D para pré-visualizar.
+
+Depois de mudar um `.puml`, gere as imagens de novo (de dentro de `docs/`,
+com Java instalado e o `plantuml.jar` — a extensão do VS Code traz um):
+
+```bash
+java -jar plantuml.jar -charset UTF-8 -tpng -o img 0*.puml
+```
 
 ## Mapa das 7 entregas da N2
 

@@ -8,7 +8,7 @@ skinparam actorStyle awesome
 actor "Usuário" as U
 
 ' Atores secundários (sistemas externos)
-actor "API Anthropic\n(Claude)" as IA
+actor "Claude\n(API Anthropic ou\nClaude Code)" as IA
 actor "Supabase\n(PostgreSQL)" as DB
 
 rectangle "Search+" {
@@ -42,6 +42,9 @@ rectangle "Search+" {
   usecase "Exportar coleção\npara pasta" as UC20
   usecase "Vincular pasta\nà coleção" as UC21
   usecase "Restaurar da lixeira" as UC22
+
+  ' --- Configuração ---
+  usecase "Conectar o Claude\n(assinatura ou API)" as UC23
 }
 
 ' Relações do usuário
@@ -67,6 +70,7 @@ U --> UC19
 U --> UC20
 U --> UC21
 U --> UC22
+U --> UC23
 
 ' Indexação lazy: indexar só gera embeddings locais (CLIP/SBERT) e grava no
 ' banco. A IA de visão entra na BUSCA, descrevendo as imagens candidatas
@@ -75,6 +79,7 @@ UC8 ..> DB : <<include>>\nsalva embedding
 UC12 ..> DB : <<include>>\nbusca vetorial
 UC12 ..> IA : <<include>>\ndescreve candidatas\ne julga relevância
 UC13 ..> DB : <<include>>\nbusca vetorial (CLIP)
+UC23 ..> IA : <<include>>\ntesta a conexão
 UC17 <.. UC20 : <<extend>>
 UC17 <.. UC21 : <<extend>>
 

@@ -32,8 +32,9 @@ FE -> BE : GET /api/collections
 activate BE
 BE -> DB : SELECT c.*, COUNT(cf.file_id)\nLEFT JOIN collection_files ...
 DB --> BE : coleções + totais
-BE -> DB : SELECT caminho ... LIMIT 4\n(capas do mosaico)
-DB --> BE : caminhos das capas
+BE -> DB : capas de TODAS as coleções numa consulta só\n(ROW_NUMBER() OVER (PARTITION BY coleção))
+DB --> BE : até 4 capas por coleção
+note right : antes era uma consulta por coleção (N+1)
 BE --> FE : 200 {colecoes:[...]}
 FE --> U : Renderiza cards com mosaico
 deactivate BE
@@ -62,10 +63,21 @@ deactivate BE
 U -> FE : Clica lixeira (excluir coleção)
 FE -> BE : DELETE /api/collections/<id>
 activate BE
+BE -> DB : retrato da coleção (itens + pastas)\nINSERT INTO lixeira
 BE -> DB : DELETE FROM collections WHERE id=%s\n(cascade apaga collection_files)
 DB --> BE : ok
-BE --> FE : 200 {status:"ok"}
-FE --> U : toastInfo + recarrega
+BE --> FE : 200 {status:"ok", lixeira_id}
+FE --> U : toast com botão "Desfazer"
 deactivate BE
+
+opt Usuário clica "Desfazer" (ou restaura pela Lixeira em até 30 dias)
+    U -> FE : Desfazer
+    FE -> BE : POST /api/lixeira/<lixeira_id>/restaurar
+    activate BE
+    BE -> DB : recria a coleção com o MESMO id,\nos itens e as pastas
+    BE --> FE : 200 {status:"ok"}
+    FE --> U : coleção de volta
+    deactivate BE
+end
 
 @enduml

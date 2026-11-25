@@ -8,7 +8,9 @@ Abordagem da equipe: **SQL (PostgreSQL/Supabase)**.
 [`PDF_Preenchido_Projeto.pdf`](PDF_Preenchido_Projeto.pdf) — as 24 seções do
 modelo de documentação técnica da disciplina, preenchidas a partir do código,
 desta pasta e da execução dos testes: arquitetura, requisitos, banco, API,
-instalação, testes, segurança, limitações e responsáveis.
+instalação, testes, segurança, limitações e responsáveis. Versão 1.2: a
+página 31 traz o adendo com a conexão com o Claude (assinatura ou API) e o
+Claude Haiku 5.5.
 
 ## Índice dos artefatos (N2)
 
@@ -19,7 +21,7 @@ instalação, testes, segurança, limitações e responsáveis.
 | [`03-sequencia-crud-colecoes.puml`](03-sequencia-crud-colecoes.puml) | ✅ Diagrama de Sequência — CRUD |
 | [`04-der.puml`](04-der.puml) | ✅ DER (SQL) |
 | [`05-modelagem-dados-DER-ORM.md`](05-modelagem-dados-DER-ORM.md) | ✅ DER + ORM explicado |
-| [`06-dossie-tecnico-sprints.md`](06-dossie-tecnico-sprints.md) | ✅ Dossiê Técnico de Sprint (1 e 2) |
+| [`06-dossie-tecnico-sprints.md`](06-dossie-tecnico-sprints.md) | ✅ Dossiê Técnico de Sprint (Sprints 1 a 5, com papéis e Definition of Done) |
 | [`../backend/schema.sql`](../backend/schema.sql) | DDL real do banco (base do DER) |
 
 ## Guias de desenvolvimento
@@ -36,7 +38,7 @@ Documentos fora do escopo da N2, produzidos ao longo do desenvolvimento.
 
 | Arquivo | Conteúdo |
 |---|---|
-| [`07-git-fluxo.md`](07-git-fluxo.md) | Convenção de branches (`main` / `develop` / `feature/*`) |
+| [`07-git-fluxo.md`](07-git-fluxo.md) | Organização do Git: Git Flow no repositório anterior e `main` com portão de qualidade do CI no atual |
 | [`08-correcoes-conexao-e-busca.md`](08-correcoes-conexao-e-busca.md) | Correções: pooler do Supabase e busca visual (CLIP) |
 | [`09-requisitos-funcionais.md`](09-requisitos-funcionais.md) | RF-001 … RF-335 e os critérios de aceite |
 | [`10-requisitos-nao-funcionais.md`](10-requisitos-nao-funcionais.md) | RNF-001 … RNF-090 + resultado da carga + débitos preexistentes |

@@ -14,11 +14,15 @@ U -> FE : Preenche usuário e senha\ne clica "Acessar"
 activate FE
 FE -> BE : POST /api/login\n{username, password}
 activate BE
-BE -> BE : _hash(senha) (SHA-256)
 BE -> DB : SELECT id, password_hash\nFROM users WHERE username=%s
 activate DB
 DB --> BE : linha do usuário (ou vazio)
 deactivate DB
+BE -> BE : _verificar_senha()\nbcrypt.checkpw(senha, hash)
+opt Hash antigo (SHA-256) conferiu
+    BE -> DB : UPDATE users SET password_hash=bcrypt(senha)
+    note right : migração transparente\npara bcrypt no próprio login
+end
 
 alt Credenciais corretas
     BE -> BE : cria sessão (session['user_id'])

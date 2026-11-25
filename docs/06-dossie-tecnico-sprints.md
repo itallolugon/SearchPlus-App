@@ -6,12 +6,13 @@ Repositório atual: https://github.com/itallolugon/SearchPlus-App
 (os commits citados nas sprints são do repositório anterior,
 `itallolugon/SearchPlus_Prototipo`).
 
-> **Registro histórico.** As sprints abaixo descrevem o projeto como era na
+> **Registro histórico.** As Sprints 1 e 2 descrevem o projeto como era na
 > época: a descrição de imagens usava LLaVA e o re-rank usava Llama 3.2, ambos
 > locais via Ollama. Depois disso a IA de visão e o julgamento de relevância
-> passaram para a API do Claude, com indexação lazy (a descrição só acontece na
-> busca). As tabelas foram mantidas como aconteceram; o estado atual está no
-> [`README.md`](../README.md) e no [`RELATORIO.md`](../RELATORIO.md).
+> passaram para o Claude, com indexação lazy (a descrição só acontece na busca).
+> As tabelas foram mantidas como aconteceram. As Sprints 3 a 5 chegam ao estado
+> atual, descrito também no [`README.md`](../README.md) e no
+> [`RELATORIO.md`](../RELATORIO.md).
 
 ---
 
@@ -25,7 +26,7 @@ julga quais resultados correspondem de verdade.
 
 **Stack:** Frontend (HTML/CSS/JS puro) · Backend (Flask/Python) ·
 Banco (PostgreSQL/Supabase + pgvector) · Embeddings locais (SBERT, CLIP) ·
-IA de visão e re-rank via API (Claude).
+IA de visão e re-rank pelo Claude Haiku 5.5 (assinatura via Claude Code, ou API).
 
 ---
 
@@ -68,6 +69,93 @@ personalização e UX refinada — com várias correções de bugs validadas.
 
 ---
 
+## SPRINT 3 — Organização do acervo e exportação (13/08 a 31/08/2026)
+
+**Objetivo:** transformar o resultado da busca em trabalho organizado — selecionar,
+agrupar em coleções e levar os arquivos para pastas do computador — e corrigir a
+conexão com o banco e a busca visual.
+
+| História de usuário | Tarefas técnicas | Evidência | Status |
+|---|---|---|---|
+| Como usuário, quero que o app **conecte ao banco em qualquer rede** | Troca do host direto do Supabase (só IPv6) pelo *session pooler*; correção da busca visual (CLIP) | [`08-correcoes-conexao-e-busca.md`](08-correcoes-conexao-e-busca.md) (13/08) | ✅ Concluída |
+| Como usuário, quero **limpar a busca** com um clique | Botão `×` acessível, sem recarregar resultados | [`features/11-limpar-busca.md`](features/11-limpar-busca.md) (25/08), branch `feature/limpar-busca-e-colecoes` | ✅ Concluída |
+| Como usuário, quero **selecionar imagens e montar coleções** | Seleção múltipla, adição em lote idempotente, capa e ordem | [`features/12-colecoes-exportacao.md`](features/12-colecoes-exportacao.md) (25/08) | ✅ Concluída |
+| Como usuário, quero **exportar uma coleção** para uma pasta | Job em segundo plano com progresso, cancelamento e histórico; cópia que nunca sobrescreve | [`features/12-colecoes-exportacao.md`](features/12-colecoes-exportacao.md), [`features/13-selecao-em-massa.md`](features/13-selecao-em-massa.md) (25/08) | ✅ Concluída |
+| Como usuário, quero uma **pasta vinculada** que se mantenha sozinha | Sincronia automática, sob pergunta ou manual; várias pastas de destino; exclusão com confirmação | [`features/14-pasta-vinculada.md`](features/14-pasta-vinculada.md) (29/08) | ✅ Concluída |
+| Como equipe, queremos **requisitos verificáveis** | Especificação de requisitos funcionais e não funcionais antes do código; testes de carga | [`09-requisitos-funcionais.md`](09-requisitos-funcionais.md), [`10-requisitos-nao-funcionais.md`](10-requisitos-nao-funcionais.md) (25 e 30/08) | ✅ Concluída |
+
+**Resultado da Sprint 3:** relatório de implementação de 31/08/2026 com 338
+requisitos entregues e 799 testes automatizados
+([`SearchPlus_Implementacoes_2026-08-31.pdf`](SearchPlus_Implementacoes_2026-08-31.pdf));
+carga com até 150 usuários simultâneos sem falhas, medida contra o servidor mock.
+
+---
+
+## SPRINT 4 — Visual, IA via API e qualidade (01/09 a 21/10/2026)
+
+**Objetivo:** amadurecer o produto para a N1 da PMI IV — interface nova, IA de
+visão na nuvem e uma revisão de qualidade completa.
+
+| História de usuário | Tarefas técnicas | Evidência | Status |
+|---|---|---|---|
+| Como usuário, quero uma **interface mais clara e moderna** | Camada visual "liquid glass", sem alterar o backend | [`features/15-visual-liquid-glass.md`](features/15-visual-liquid-glass.md) (14/09), branch `feature/visual-liquid-glass` | ✅ Concluída |
+| Como usuário, quero **descrições de imagem melhores e sem instalar 12 GB** | Descrição e re-rank migrados do Ollama/LLaVA para o Claude, com indexação lazy (migração concluída antes da linha de base); ajustes posteriores no cliente e no modelo | Commits `57fef34` (10/10) e `66f4052` (19/10) | ✅ Concluída |
+| Como equipe, queremos **um repositório limpo e publicável** | Nova linha de base, sem credenciais no histórico | Commit `ad669d7` (10/10) | ✅ Concluída |
+| Como usuário, quero que o **modo Relâmpago/Profundo funcione** | Descrição sob demanda passa a usar o modo e o foco da pasta | Commit `ba737c9` (21/10) | ✅ Concluída |
+| Como usuário, quero **ligar o app com um comando só** | Download automático dos modelos na 1ª execução; remoção dos `.bat`; mensagem clara quando o banco recusa a conexão | Commit `ba737c9` (21/10) | ✅ Concluída |
+| Como equipe, queremos **documentação técnica para a N1** | Documento de 24 seções no modelo da disciplina; atualização de README, RELATORIO e diagramas | Commit `a9b60fc` (21/10), [`PDF_Preenchido_Projeto.pdf`](PDF_Preenchido_Projeto.pdf) | ✅ Concluída |
+
+**Resultado da Sprint 4:** 852 testes, lint do backend zerado e bloqueante no CI,
+cobertura de 67%, documentação técnica da N1 entregue.
+
+---
+
+## SPRINT 5 — Claude pela assinatura e preparação da banca (22/10 a 25/11/2026)
+
+**Objetivo:** permitir usar a assinatura do Claude no protótipo, adotar o
+Claude Haiku 5.5 e deixar o projeto pronto para a banca.
+
+| História de usuário | Tarefas técnicas | Evidência | Status |
+|---|---|---|---|
+| Como usuário, quero **conectar o Claude pela minha assinatura** | Modo assinatura via Claude Code (`claude setup-token`), isolado e sem acesso a arquivos; modo chave de API como alternativa | Commit `80fd181` (24/11) | ✅ Concluída |
+| Como usuário, quero **ver se o Claude está funcionando** | Indicador no dock, painel com teste, uso do plano e erros com orientação | Commit `80fd181` | ✅ Concluída |
+| Como usuário, quero **buscas mais rápidas** | Descrições sob demanda em paralelo (4 fotos em 6,7 s, antes ~15 s) | Commit `80fd181` | ✅ Concluída |
+| Como usuário, quero **resultados certos com o modelo novo** | Haiku 5.5 com effort high; correção da leitura dos campos em Markdown, que descartava fotos de animais | Commit `80fd181` | ✅ Concluída |
+| Como equipe, queremos **chegar à banca com tudo coerente** | Diagramas de sequência atualizados, dossiê de sprints, fluxo Git e adendo 1.2 da documentação técnica | Commit desta preparação | ✅ Concluída |
+
+**Resultado da Sprint 5:** Claude Haiku 5.5 rodando pela assinatura, 921 testes,
+cobertura de ~70%, CI verde.
+
+---
+
+## Papéis na equipe
+
+| Integrante | Papel |
+|---|---|
+| Lorenzo Osorio | Líder; UI/UX Designer |
+| Itallo Lugon | Desenvolvimento |
+| Kevin Kuznier | Documentação e desenvolvimento |
+| João Miguel | Documentação |
+
+> **Sobre os registros.** As Sprints 3 a 5 foram consolidadas a partir dos
+> artefatos versionados — datas das especificações, relatórios e commits. O
+> repositório não registra as cerimônias (planning, daily, review e
+> retrospectiva) nem estimativas por história; elas não são reconstruídas aqui
+> para não registrar o que não está documentado.
+
+### Aprendizados técnicos registrados
+
+- **Especificar antes de codar funciona.** Os requisitos de 25/08 foram escritos
+  como contrato e viraram testes; a Sprint 3 entregou 338 requisitos sem
+  regressão nas buscas.
+- **Testar com o modelo real pega o que o teste simulado não pega.** O Haiku 5.5
+  escreve os campos em Markdown; com respostas simuladas tudo passava, e só a
+  chamada real mostrou que fotos de cachorro sumiam da busca por "cachorro".
+- **Medir antes de otimizar.** Cronometrar uma descrição (3,8 s) mostrou que o
+  gargalo era fazer as 5 em fila — e não o modelo.
+
+---
+
 ## Integração Modelagem ↔ Scrum ↔ Código
 
 - **Cada história** acima tem commits rastreáveis no Git (coluna "Commits").
@@ -81,7 +169,16 @@ personalização e UX refinada — com várias correções de bugs validadas.
 ---
 
 ## Critérios de "pronto" (Definition of Done)
-Uma história só foi considerada concluída quando:
+
+**Sprints 1 e 2.** Uma história só foi considerada concluída quando:
 1. Código no `main` (via merge), funcionando ponta a ponta;
 2. Backend + frontend integrados e testados manualmente/por API;
 3. Sem regressão nas buscas existentes.
+
+**A partir da Sprint 3**, além disso, o portão de qualidade do CI
+([`.github/workflows/ci.yml`](../.github/workflows/ci.yml)) precisa estar verde:
+1. Lint e formatação sem achados (testes e backend);
+2. Testes unitários e de integração passando, cobertura do backend ≥ 64%;
+3. Integração com Postgres efêmero e smoke de carga contra o mock;
+4. `app.py`, `mock_server.py` e `docs/API.md` em paridade (rota nova entra nos três);
+5. Documentação afetada atualizada no mesmo commit.

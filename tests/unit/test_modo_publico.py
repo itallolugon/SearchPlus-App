@@ -57,9 +57,6 @@ def envios(app_module, monkeypatch, tmp_path):
         ("POST", "/api/exportacoes/1/limpar_sumidos"),
         ("GET", "/api/debug/files"),
         ("GET", "/api/debug/scores"),
-        ("POST", "/api/claude"),
-        ("POST", "/api/claude/testar"),
-        ("DELETE", "/api/claude/credencial"),
         ("POST", "/api/clear_cache"),
     ],
 )
@@ -273,3 +270,81 @@ def test_lista_de_pastas_marca_a_pasta_de_envios(app_module, envios):
         },
     ]
     assert [p["enviados"] for p in app_module._folders_to_json(linhas)] == [True, False]
+
+
+# ── Conexão com o Claude pelo link ───────────────────────────────────────────
+# Atrás do túnel todo pedido chega de 127.0.0.1, então "só do computador local"
+# não protege nada. No modo público quem configura o Claude é uma conta listada
+# em SEARCHPLUS_ADMINS; as outras só veem o estado.
+
+ADMIN = "banca@searchplus.app"
+
+
+@pytest.fixture()
+def admins(app_module, monkeypatch):
+    monkeypatch.setattr(app_module, "ADMINS_PUBLICO", {ADMIN})
+
+
+def _logado_como(db_roteado, username):
+    db_roteado({"SELECT username FROM users": {"fetchone": {"username": username}}})
+
+
+@pytest.mark.parametrize(
+    "metodo, rota",
+    [
+        ("POST", "/api/claude"),
+        ("POST", "/api/claude/testar"),
+        ("DELETE", "/api/claude/credencial"),
+    ],
+)
+def test_conta_comum_nao_mexe_no_claude(
+    client_logado, modo_publico, admins, db_roteado, metodo, rota
+):
+    _logado_como(db_roteado, "outra@conta")
+    r = client_logado.open(rota, method=metodo, json={})
+    assert r.status_code == 403
+    assert "administradora" in r.get_json()["error"]
+
+
+def test_admin_passa_pela_trava(client_logado, modo_publico, admins, db_roteado):
+    _logado_como(db_roteado, ADMIN)
+    # Provedor inválido: passou da trava e parou na validação, sem gravar nada.
+    r = client_logado.post(
+        "/api/claude", json={"provedor": "x"}, headers={"Origin": "http://localhost"}
+    )
+    assert r.status_code == 400
+    assert "Modo de conexão" in r.get_json()["error"]
+
+
+def test_admin_comparado_sem_diferenciar_maiusculas(
+    client_logado, modo_publico, admins, db_roteado
+):
+    _logado_como(db_roteado, "Banca@SearchPlus.app")
+    r = client_logado.post("/api/claude", json={"provedor": "x"})
+    assert r.status_code == 400
+
+
+def test_admin_vindo_de_outro_site_e_recusado(client_logado, modo_publico, admins, db_roteado):
+    _logado_como(db_roteado, ADMIN)
+    r = client_logado.post(
+        "/api/claude",
+        json={"provedor": "x"},
+        headers={"Origin": "https://site-malicioso.example"},
+    )
+    assert r.status_code == 403
+
+
+def test_sem_admins_ninguem_configura(
+    client_logado, modo_publico, app_module, monkeypatch, db_roteado
+):
+    monkeypatch.setattr(app_module, "ADMINS_PUBLICO", set())
+    _logado_como(db_roteado, ADMIN)
+    assert client_logado.post("/api/claude", json={"provedor": "x"}).status_code == 403
+
+
+def test_lista_de_admins_vem_da_variavel(app_module):
+    assert app_module._ler_admins(" Banca@SearchPlus.app , dono ,, ") == {
+        "banca@searchplus.app",
+        "dono",
+    }
+    assert app_module._ler_admins("") == set()

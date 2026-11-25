@@ -21,7 +21,7 @@ import unicodedata
 from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
-from urllib.parse import unquote
+from urllib.parse import unquote, urlparse
 
 import psycopg2
 import psycopg2.errors
@@ -951,11 +951,18 @@ _BLOQUEADAS_NO_PUBLICO = {
     "api_collection_sync": None,
     "api_debug_files": None,
     "api_debug_scores": None,
-    "api_claude": {"POST"},
-    "api_claude_testar": None,
-    "api_claude_remover_credencial": None,
     "api_clear_cache": None,
 }
+
+
+def _ler_admins(texto: str) -> set[str]:
+    """'Ana@x.com, dono' → {'ana@x.com', 'dono'}: sem caixa e sem espaços."""
+    return {n.strip().lower() for n in (texto or "").split(",") if n.strip()}
+
+
+# Contas que podem configurar o Claude pelo link (a credencial é da máquina).
+# Vazio, ninguém configura no modo público — o padrão seguro.
+ADMINS_PUBLICO = _ler_admins(os.environ.get("SEARCHPLUS_ADMINS", ""))
 
 MSG_BLOQUEADA_NO_PUBLICO = (
     "Indisponível na versão on-line: esta função mexe no computador onde o "
@@ -6339,9 +6346,42 @@ def api_health():
 _ENDERECOS_LOCAIS = {"127.0.0.1", "::1"}
 
 
+def _mesma_origem(origem: str | None) -> bool:
+    """O pedido veio da própria página do Search+ (ou de uma origem liberada)?"""
+    if not origem or origem in ALLOWED_ORIGINS:
+        return True
+    return urlparse(origem).netloc.lower() == (request.host or "").lower()
+
+
+def _barrar_config_claude_publico(uid: int):
+    """
+    Modo público: atrás do túnel todo pedido chega de 127.0.0.1, então a trava
+    de "só no computador local" não protege nada. Quem configura é uma conta
+    listada em SEARCHPLUS_ADMINS; as demais só leem o estado (o indicador do
+    dock depende disso).
+    """
+    if request.method == "GET":
+        return None
+    conn = get_db()
+    try:
+        row = conn.execute("SELECT username FROM users WHERE id = %s", (uid,)).fetchone()
+    finally:
+        conn.close()
+    nome = (row["username"] if row else "").strip().lower()
+    if nome not in ADMINS_PUBLICO:
+        return jsonify({"error": "Na versão on-line, só uma conta administradora pode "
+                                 "mudar a conexão com o Claude."}), 403
+    if not _mesma_origem(request.headers.get("Origin")):
+        return jsonify({"error": "Pedido vindo de outro site recusado."}), 403
+    return None
+
+
 def _barrar_config_claude():
-    if not _uid():
+    uid = _uid()
+    if not uid:
         return jsonify({"error": "Não autenticado."}), 401
+    if MODO_PUBLICO:
+        return _barrar_config_claude_publico(uid)
     if request.remote_addr not in _ENDERECOS_LOCAIS:
         return jsonify({"error": "A conexão com o Claude só pode ser configurada "
                                  "no computador onde o Search+ roda."}), 403

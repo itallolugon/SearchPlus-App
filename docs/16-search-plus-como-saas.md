@@ -68,9 +68,11 @@ Preços de lançamento planejados, ainda não validados com clientes.
 **O que o modo público bloqueia, e por quê:** num servidor aberto, cadastrar
 `C:\` como pasta deixaria qualquer conta ler qualquer arquivo da máquina,
 inclusive a senha do banco. Por isso ficam desligados o cadastro de pastas do
-servidor, a exportação para pastas, as janelas do Windows, a configuração do
-Claude e as rotas de diagnóstico. A lista completa está em
-[`API.md`](API.md#modo-público), e cada bloqueio tem teste.
+servidor, a exportação para pastas, as janelas do Windows e as rotas de
+diagnóstico. A conexão com o Claude fica só com as contas administradoras
+(`SEARCHPLUS_ADMINS`): as outras veem o estado, mas não trocam a chave. A
+lista completa está em [`API.md`](API.md#modo-público), e cada bloqueio tem
+teste.
 
 ### Como ligar
 
@@ -94,6 +96,7 @@ Configurações opcionais:
 
 | Variável | Padrão | Para quê |
 |---|---|---|
+| `SEARCHPLUS_ADMINS` | vazio | Contas que podem configurar o Claude pelo link, separadas por vírgula. Vazio, ninguém configura |
 | `SEARCHPLUS_PASTA_ENVIOS` | `~/SearchPlus/Enviados` | Onde ficam os arquivos enviados (fora da pasta do projeto, que é servida) |
 | `SEARCHPLUS_MAX_ENVIO_MB` | `100` | Tamanho máximo por envio (o plano grátis do Cloudflare aceita até 100 MB) |
 

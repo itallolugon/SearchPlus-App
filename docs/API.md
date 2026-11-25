@@ -1308,6 +1308,13 @@ Regras de acesso de todas as rotas abaixo: exigem sessão (`401`), só aceitam
 pedidos da própria máquina (`403`) e recusam escrita com `Origin` fora da lista
 do CORS (`403`). Escrita só com `Content-Type: application/json` (`415`).
 
+No [modo público](#modo-público) a regra da máquina não vale (atrás do túnel
+todo pedido chega de `127.0.0.1`). No lugar dela: qualquer conta lê o estado
+(`GET`), mas só as contas listadas em `SEARCHPLUS_ADMINS` (separadas por
+vírgula, sem diferenciar maiúsculas) salvam, testam ou removem a credencial
+(`403` para as demais). A escrita aceita `Origin` da lista do CORS ou do
+próprio endereço do link.
+
 #### `GET /api/claude`
 
 ```json
@@ -1407,7 +1414,7 @@ respondem `403` com `error` explicando o motivo:
 | `GET /api/choose_folder`, `GET /api/choose_image` | Abririam a janela na tela do servidor |
 | `GET /api/open_location`, `GET /api/open_folder` | Abririam o Explorer do servidor |
 | Exportação e pasta da coleção (`/export`, `/sync`, `PATCH`/`DELETE .../folders`, `/repetir`, `/limpar_sumidos`) | Gravam ou apagam no disco do servidor |
-| `POST /api/claude`, `/api/claude/testar`, `DELETE /api/claude/credencial` | Credencial do Claude da máquina |
+| `POST /api/claude`, `/api/claude/testar`, `DELETE /api/claude/credencial` — **só para contas fora de `SEARCHPLUS_ADMINS`** | A credencial é da máquina; quem configura é a conta administradora ([regras](#conexão-com-o-claude)) |
 | `/api/debug/*`, `POST /api/clear_cache` | Diagnóstico e manutenção |
 
 Busca, galeria, coleções, favoritos, histórico e lixeira continuam

@@ -31,7 +31,7 @@ from pgvector.psycopg2 import register_vector
 from dotenv import load_dotenv
 
 from flask import (
-    Flask, g, has_app_context, jsonify, request, send_file,
+    Flask, g, has_app_context, jsonify, redirect, request, send_file,
     send_from_directory, session,
 )
 from flask_cors import CORS
@@ -908,6 +908,80 @@ CORS(
 )
 
 # ──────────────────────────────────────────────────────────────────────────────
+# Modo público (acesso por um link na internet)
+# ──────────────────────────────────────────────────────────────────────────────
+# Com SEARCHPLUS_MODO_PUBLICO=1 o Search+ pode ficar atrás de um túnel (ex.:
+# Cloudflare Tunnel) e ser aberto de outro computador. Quem entra por ali não
+# pode mexer no disco nem no Windows da máquina onde ele roda: cadastrar 'C:\'
+# como pasta deixaria ler qualquer arquivo de lá — inclusive backend/.env.
+# Os arquivos chegam pelo navegador, em /api/upload.
+MODO_PUBLICO = os.environ.get("SEARCHPLUS_MODO_PUBLICO", "0") == "1"
+
+# Onde ficam os arquivos enviados pelo navegador, uma subpasta por usuário.
+# Fora da raiz do projeto de propósito: a raiz é servida como frontend, e um
+# .jpg enviado ali sairia para qualquer um, sem login.
+PASTA_ENVIOS = Path(
+    os.environ.get("SEARCHPLUS_PASTA_ENVIOS")
+    or (Path.home() / "SearchPlus" / "Enviados")
+)
+
+# O plano grátis do Cloudflare recusa corpo acima de 100 MB; o front manda os
+# arquivos em lotes menores que isso.
+app.config["MAX_CONTENT_LENGTH"] = (
+    int(os.environ.get("SEARCHPLUS_MAX_ENVIO_MB", "100")) * 1024 * 1024
+)
+
+# endpoint → métodos bloqueados (None = todos). Cadastro fechado: só entra
+# quem recebeu uma conta. O resto toca no disco, abre janelas do Windows ou
+# muda a credencial do Claude da máquina.
+_BLOQUEADAS_NO_PUBLICO = {
+    "api_register": None,
+    "api_cadastro": None,
+    "api_folders": {"POST"},
+    "api_estimate_time": None,
+    "api_choose_image": None,
+    "api_choose_folder": None,
+    "api_open_folder": None,
+    "api_open_location": None,
+    "api_collection_export": None,
+    "api_exportacao_repetir": None,
+    "api_exportacao_limpar_sumidos": None,
+    "api_collection_folder_rename": None,
+    "api_collection_folders_delete": None,
+    "api_collection_sync": None,
+    "api_debug_files": None,
+    "api_debug_scores": None,
+    "api_claude": {"POST"},
+    "api_claude_testar": None,
+    "api_claude_remover_credencial": None,
+    "api_clear_cache": None,
+}
+
+MSG_BLOQUEADA_NO_PUBLICO = (
+    "Indisponível na versão on-line: esta função mexe no computador onde o "
+    "Search+ está instalado. Para adicionar arquivos, use \"Enviar arquivos\"."
+)
+
+
+@app.before_request
+def _barrar_no_modo_publico():
+    if not MODO_PUBLICO:
+        return None
+    metodos = _BLOQUEADAS_NO_PUBLICO.get(request.endpoint, ())
+    if metodos is None or request.method in metodos:
+        return jsonify({"error": MSG_BLOQUEADA_NO_PUBLICO}), 403
+    return None
+
+
+@app.errorhandler(413)
+def _corpo_grande_demais(_erro):
+    limite = app.config.get("MAX_CONTENT_LENGTH") or 0
+    return jsonify({
+        "error": f"Envio grande demais (limite de {limite // (1024 * 1024)} MB por vez). "
+                 "Mande menos arquivos de cada vez.",
+    }), 413
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Estado global do motor de IA (thread-safe)
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -1494,6 +1568,17 @@ def serve_static(filename):
             resposta.headers["Cache-Control"] = "no-store, must-revalidate"
         return resposta
 
+    # Pasta com index.html própria (ex.: landing/) é uma página à parte, não
+    # rota da SPA. Sem isto, /landing/ caía no index.html do app e carregava o
+    # CSS da landing por cima dele. Sem a barra final, redireciona: os caminhos
+    # relativos da página (style.css, img/) só resolvem dentro da pasta.
+    if destino.is_dir() and (destino / "index.html").is_file() and _pode_servir(rel / "index.html"):
+        if not request.path.endswith("/"):
+            return redirect(request.path + "/", code=308)
+        resposta = send_from_directory(str(FRONTEND_DIR), (rel / "index.html").as_posix())
+        resposta.headers["Cache-Control"] = "no-store, must-revalidate"
+        return resposta
+
     # Não é arquivo: se o caminho tem cara de recurso estático (tem extensão),
     # é um 404 de verdade. Sem extensão, é rota de SPA — entrega o index.html
     # e deixa o roteador do frontend decidir.
@@ -1648,9 +1733,11 @@ def api_cadastro():
 
 @app.route("/api/check_session")
 def api_check_session():
+    # modo_publico vai em toda resposta, inclusive no 401: a tela de login
+    # precisa saber se mostra "Criar conta" antes de alguém entrar.
     uid = _uid()
     if not uid:
-        return jsonify({"error": "Sem sessão ativa."}), 401
+        return jsonify({"error": "Sem sessão ativa.", "modo_publico": MODO_PUBLICO}), 401
 
     # Verifica se o usuário ainda existe no banco (ex: após deletar o DB)
     conn = get_db()
@@ -1658,11 +1745,11 @@ def api_check_session():
     conn.close()
 
     if user:
-        return jsonify({"username": user["username"]})
+        return jsonify({"username": user["username"], "modo_publico": MODO_PUBLICO})
 
     # Usuário não existe mais — limpa sessão e força novo login
     session.clear()
-    return jsonify({"error": "Usuário não encontrado."}), 401
+    return jsonify({"error": "Usuário não encontrado.", "modo_publico": MODO_PUBLICO}), 401
 
 
 @app.route("/api/logout", methods=["POST"])
@@ -1791,8 +1878,21 @@ def _folders_to_json(rows):
             "prioridades": prio,
             "perfil_analise": r["perfil_analise"] or "fast",
             "janela_processamento": r["janela_processamento"] or "always",
+            "enviados": _eh_pasta_de_envios(r["path"]),
         })
     return result
+
+
+def _eh_pasta_de_envios(caminho: str) -> bool:
+    """
+    Se a pasta é a dos arquivos enviados pelo navegador.
+
+    O front mostra "Enviados pelo navegador" em vez do caminho interno do
+    servidor, que não diz nada a quem enviou e ainda expõe a máquina.
+    """
+    base = os.path.normpath(str(PASTA_ENVIOS)).lower().rstrip("\\/")
+    alvo = os.path.normpath(caminho or "").lower()
+    return alvo == base or alvo.startswith(base + os.sep)
 
 
 @app.route("/api/folders", methods=["GET", "POST", "DELETE"])
@@ -1887,6 +1987,155 @@ def api_folders():
 
     rows = _list_folders(uid)
     return jsonify({"status": "ok", "pastas": _folders_to_json(rows)})
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Envio de arquivos pelo navegador
+# ──────────────────────────────────────────────────────────────────────────────
+
+_PROIBIDOS_NO_NOME = set('<>:"/\\|?*')
+_NOMES_RESERVADOS_WINDOWS = (
+    {"con", "prn", "aux", "nul"}
+    | {f"com{i}" for i in range(1, 10)}
+    | {f"lpt{i}" for i in range(1, 10)}
+)
+NOME_PASTA_ENVIOS = "Enviados pelo navegador"
+_MAX_ARQUIVOS_POR_ENVIO = 200
+
+
+def _nome_seguro(nome: str) -> str:
+    """
+    Nome de arquivo vindo do navegador, reduzido a um nome simples e válido.
+
+    Fica só a última parte do caminho — '../../x.jpg' e 'C:\\Windows\\x.jpg'
+    viram 'x.jpg' —, sem os caracteres que o Windows recusa nem ponto no
+    começo (arquivo oculto). Acentos ficam: 'relatório.pdf' continua legível.
+    Devolve '' quando não sobra nada aproveitável.
+    """
+    nome = (nome or "").replace("\\", "/").split("/")[-1]
+    nome = "".join(c for c in nome if c not in _PROIBIDOS_NO_NOME and ord(c) >= 32)
+    nome = nome.strip().lstrip(".").strip().rstrip(". ")
+    if not nome:
+        return ""
+    base, ponto, ext = nome.rpartition(".")
+    if not ponto:
+        base, ext = nome, ""
+    if base.lower() in _NOMES_RESERVADOS_WINDOWS:
+        base = "_" + base
+    base = base[:120]
+    return f"{base}.{ext}" if ext else base
+
+
+def _gravar_sem_sobrescrever(arquivo, pasta: str, nome: str) -> str:
+    """
+    Grava o arquivo enviado em `pasta`; se o nome já existe, vira 'nome (2).ext'.
+
+    Abre com 'xb' (falha se existir) em vez de checar e depois gravar: dois
+    envios simultâneos com o mesmo nome não conseguem pegar o mesmo caminho.
+    """
+    base, ext = os.path.splitext(nome)
+    n = 1
+    while True:
+        candidato = os.path.join(pasta, nome if n == 1 else f"{base} ({n}){ext}")
+        try:
+            with open(candidato, "xb") as destino:
+                arquivo.save(destino)
+            return candidato
+        except FileExistsError:
+            n += 1
+
+
+def _pasta_de_envios(uid: int) -> tuple[str, int | None]:
+    """Cria (se preciso) a pasta de envios do usuário e o registro dela em folders."""
+    pasta = os.path.normpath(str(PASTA_ENVIOS / str(uid)))
+    os.makedirs(pasta, exist_ok=True)
+
+    conn = get_db()
+    try:
+        row = conn.execute(
+            "SELECT id FROM folders WHERE user_id = %s AND path = %s", (uid, pasta)
+        ).fetchone()
+        if not row:
+            row = conn.execute(
+                "INSERT INTO folders (user_id, path, name, added_at, prioridades, "
+                "perfil_analise, janela_processamento) VALUES (%s, %s, %s, %s, %s, %s, %s) "
+                "ON CONFLICT (user_id, path) DO NOTHING RETURNING id",
+                (uid, pasta, NOME_PASTA_ENVIOS, datetime.now(timezone.utc).isoformat(),
+                 json.dumps(["tudo"]), "fast", "always"),
+            ).fetchone()
+            conn.commit()
+            if not row:  # outro envio simultâneo criou primeiro
+                row = conn.execute(
+                    "SELECT id FROM folders WHERE user_id = %s AND path = %s", (uid, pasta)
+                ).fetchone()
+    finally:
+        conn.close()
+    return pasta, (row["id"] if row else None)
+
+
+@app.route("/api/upload", methods=["POST"])
+def api_upload():
+    """
+    Recebe arquivos do navegador e já os coloca na fila de análise.
+
+    É o caminho de entrada quando o Search+ é usado por um link: o servidor não
+    enxerga o computador de quem está usando, então os arquivos vêm até ele.
+    Só esses arquivos entram na fila — sem varrer a pasta inteira de novo a
+    cada lote, o que enfileiraria os pendentes dos lotes anteriores outra vez.
+    """
+    uid = _uid()
+    if not uid:
+        return jsonify({"error": "Não autenticado."}), 401
+
+    recebidos = request.files.getlist("arquivos")
+    if not recebidos:
+        return jsonify({"error": "Nenhum arquivo enviado."}), 400
+    if len(recebidos) > _MAX_ARQUIVOS_POR_ENVIO:
+        return jsonify({
+            "error": f"Mande no máximo {_MAX_ARQUIVOS_POR_ENVIO} arquivos de cada vez.",
+        }), 400
+
+    pasta, folder_id = _pasta_de_envios(uid)
+
+    salvos: list[str] = []
+    ignorados: list[dict] = []
+    for arquivo in recebidos:
+        nome = _nome_seguro(arquivo.filename)
+        ext = nome.rsplit(".", 1)[-1].lower() if "." in nome else ""
+        if not nome or ext not in _EXT_ALL:
+            ignorados.append({"nome": arquivo.filename or "", "motivo": "tipo não suportado"})
+            continue
+
+        caminho = _gravar_sem_sobrescrever(arquivo, pasta, nome)
+        nome_final = os.path.basename(caminho)
+        mtime, tamanho = _assinatura_no_disco(caminho)
+
+        conn = get_db()
+        try:
+            conn.execute(
+                """INSERT INTO files
+                   (folder_id, user_id, nome, caminho, tipo,
+                    data_adicionado, favorito, processado, mtime, tamanho)
+                   VALUES (%s, %s, %s, %s, %s, %s, 0, 0, %s, %s)""",
+                (folder_id, uid, nome_final, caminho, ext,
+                 datetime.now(timezone.utc).isoformat(), mtime, tamanho),
+            )
+            conn.commit()
+        except psycopg2.errors.UniqueViolation:
+            conn.rollback()
+        finally:
+            conn.close()
+
+        _queue.put({"path": caminho, "nome": nome_final, "ext": ext, "uid": uid,
+                    "folder_id": folder_id, "pasta": pasta})
+        salvos.append(nome_final)
+
+    return jsonify({
+        "status": "ok",
+        "enviados": len(salvos),
+        "arquivos": salvos,
+        "ignorados": ignorados,
+    })
 
 
 @app.route("/api/folders/<int:folder_id>", methods=["DELETE"])

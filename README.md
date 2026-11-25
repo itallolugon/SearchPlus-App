@@ -22,6 +22,9 @@ estão. A indexação roda no próprio computador; a IA só entra na hora da bus
 A página de apresentação do produto fica em [`landing/`](landing/index.html)
 (com o app ligado: `http://127.0.0.1:5000/landing/`).
 
+Para abrir o Search+ por um link na internet, com cadastro fechado e envio de
+arquivos pelo navegador, veja [`docs/16-search-plus-como-saas.md`](docs/16-search-plus-como-saas.md).
+
 ## Equipe — PMI IV · ADS · 2026/2
 
 | Integrante | Papel |
@@ -39,6 +42,7 @@ A página de apresentação do produto fica em [`landing/`](landing/index.html)
 | Scrum: Sprints 1 a 5, papéis e Definition of Done | [`docs/06-dossie-tecnico-sprints.md`](docs/06-dossie-tecnico-sprints.md) |
 | Modelagem: casos de uso, sequência, DER e ORM | [`docs/`](docs/README.md) (imagens em [`docs/img/`](docs/img/)) |
 | Organização do Git | [`docs/07-git-fluxo.md`](docs/07-git-fluxo.md) |
+| Search+ como SaaS: versão on-line, modelo de negócio e caminho para produção | [`docs/16-search-plus-como-saas.md`](docs/16-search-plus-como-saas.md) |
 | Contrato da API | [`docs/API.md`](docs/API.md) |
 | Requisitos funcionais e não funcionais | [`docs/09`](docs/09-requisitos-funcionais.md) · [`docs/10`](docs/10-requisitos-nao-funcionais.md) |
 

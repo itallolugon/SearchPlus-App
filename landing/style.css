@@ -178,6 +178,24 @@ body {
 .stack { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; margin-top: 44px; }
 .stack span { padding: 8px 18px; background: var(--surface); border: 1px solid var(--border-light); border-radius: 999px; color: var(--text-secondary); font-size: 0.85rem; font-weight: 600; }
 
+/* PLANOS */
+.planos { background: var(--surface); }
+.planos-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; margin-top: 50px; align-items: stretch; }
+.plano { position: relative; display: flex; flex-direction: column; background: var(--bg-deep); border: 1px solid var(--border-light); border-radius: 18px; padding: 32px; }
+.plano-destaque { border-color: rgba(129, 140, 248, 0.55); box-shadow: 0 20px 60px rgba(129, 140, 248, 0.18); }
+.plano-selo { position: absolute; top: -13px; left: 32px; padding: 4px 14px; border-radius: 999px; background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary)); color: #fff; font-size: 0.75rem; font-weight: 700; }
+.plano h3 { font-size: 1.2rem; }
+.plano-preco { font-size: 2.2rem; font-weight: 900; letter-spacing: -1px; margin: 10px 0 4px; }
+.plano-preco small { font-size: 0.9rem; font-weight: 500; color: var(--text-secondary); letter-spacing: 0; }
+.plano-desc { color: var(--text-secondary); font-size: 0.92rem; }
+.plano ul { list-style: none; margin: 22px 0 28px; flex: 1; }
+.plano li { position: relative; padding-left: 22px; margin-bottom: 10px; color: var(--text-secondary); font-size: 0.92rem; }
+.plano li::before { content: "✓"; position: absolute; left: 0; color: var(--telemetry); font-weight: 700; }
+.plano-btn { text-align: center; }
+.plano-breve { cursor: default; opacity: 0.6; }
+.plano-breve:hover { transform: none; box-shadow: none; background: inherit; }
+.planos-nota { margin-top: 28px; text-align: center; color: var(--text-secondary); font-size: 0.85rem; }
+
 /* CTA FINAL */
 .cta-final { position: relative; text-align: center; padding: 100px 24px; overflow: hidden; }
 .cta-glow { position: absolute; bottom: -200px; left: 50%; transform: translateX(-50%); width: 700px; height: 500px; background: radial-gradient(circle, rgba(165, 180, 252, 0.2) 0%, transparent 65%); pointer-events: none; }
@@ -194,6 +212,7 @@ body {
 /* ---------- RESPONSIVO ---------- */
 @media (max-width: 900px) {
     .nicho-grid, .feat-grid, .problema-grid { grid-template-columns: 1fr 1fr; }
+    .planos-grid { grid-template-columns: 1fr; max-width: 460px; margin-left: auto; margin-right: auto; }
     .tech-grid { grid-template-columns: 1fr 1fr; }
     .passos { flex-direction: column; }
     .passo-seta { transform: rotate(90deg); justify-content: center; }

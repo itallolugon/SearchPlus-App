@@ -38,6 +38,7 @@ Documentos fora do escopo da N2, produzidos ao longo do desenvolvimento.
 
 | Arquivo | Conteúdo |
 |---|---|
+| [`16-search-plus-como-saas.md`](16-search-plus-como-saas.md) | O Search+ como SaaS: o que já é, o que falta, modelo de negócio, versão on-line (modo público + Cloudflare Tunnel) e caminho para produção |
 | [`07-git-fluxo.md`](07-git-fluxo.md) | Organização do Git: Git Flow no repositório anterior e `main` com portão de qualidade do CI no atual |
 | [`08-correcoes-conexao-e-busca.md`](08-correcoes-conexao-e-busca.md) | Correções: pooler do Supabase e busca visual (CLIP) |
 | [`09-requisitos-funcionais.md`](09-requisitos-funcionais.md) | RF-001 … RF-335 e os critérios de aceite |

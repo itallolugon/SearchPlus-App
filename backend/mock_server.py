@@ -200,9 +200,9 @@ for _i, _a in enumerate(_ARQUIVOS):
 
 _PASTAS = [
     {"id": 1, "path": _BASE, "prioridades": ["tudo"],
-     "perfil_analise": "fast", "janela_processamento": "always"},
+     "perfil_analise": "fast", "janela_processamento": "always", "enviados": False},
     {"id": 2, "path": _DOCS, "prioridades": ["documentos"],
-     "perfil_analise": "deep", "janela_processamento": "always"},
+     "perfil_analise": "deep", "janela_processamento": "always", "enviados": False},
 ]
 
 _COLECOES = [
@@ -334,11 +334,16 @@ def register():
     return jsonify({"status": "ok"})
 
 
+# Mesmo sinal do servidor real: com SEARCHPLUS_MODO_PUBLICO=1 o front troca
+# "Adicionar pasta" por "Enviar arquivos" e esconde o cadastro.
+_MODO_PUBLICO = os.environ.get("SEARCHPLUS_MODO_PUBLICO", "0") == "1"
+
+
 @app.route("/api/check_session")
 def check_session():
     if not _logado():
-        return jsonify({"error": "Sem sessão ativa."}), 401
-    return jsonify({"username": session.get("username", "demo")})
+        return jsonify({"error": "Sem sessão ativa.", "modo_publico": _MODO_PUBLICO}), 401
+    return jsonify({"username": session.get("username", "demo"), "modo_publico": _MODO_PUBLICO})
 
 
 @app.route("/api/logout", methods=["POST"])
@@ -391,6 +396,7 @@ def folders():
             "prioridades": data.get("prioridades", ["tudo"]),
             "perfil_analise": data.get("perfil_analise", "fast"),
             "janela_processamento": data.get("janela_processamento", "always"),
+            "enviados": False,
         }
         if existente:
             _PASTAS[_PASTAS.index(existente)] = novo
@@ -403,6 +409,26 @@ def folders():
         if p["path"].lower() == pasta.lower():
             _PASTAS.remove(p)
     return jsonify({"status": "ok", "pastas": _PASTAS})
+
+
+@app.route("/api/upload", methods=["POST"])
+def upload():
+    """Aceita o envio e devolve o mesmo formato do real, sem gravar nada."""
+    if not _logado():
+        return _nao_autenticado()
+    recebidos = request.files.getlist("arquivos")
+    if not recebidos:
+        return jsonify({"error": "Nenhum arquivo enviado."}), 400
+    aceitos = _EXT_IMG | _EXT_VID | _EXT_AUD | {"pdf", "docx", "doc", "txt", "odt", "csv", "xlsx"}
+    salvos, ignorados = [], []
+    for f in recebidos:
+        nome = os.path.basename((f.filename or "").replace("\\", "/"))
+        ext = nome.rsplit(".", 1)[-1].lower() if "." in nome else ""
+        if ext in aceitos:
+            salvos.append(nome)
+        else:
+            ignorados.append({"nome": f.filename or "", "motivo": "tipo não suportado"})
+    return jsonify({"status": "ok", "enviados": len(salvos), "arquivos": salvos, "ignorados": ignorados})
 
 
 @app.route("/api/folders/<int:folder_id>", methods=["DELETE"])

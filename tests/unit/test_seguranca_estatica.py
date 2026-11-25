@@ -129,3 +129,23 @@ class TestServeStaticPelaRota:
     def test_traversal_nao_alcanca_arquivo_privado_existente(self, client):
         """Subir de pasta com '..' não pode contornar a allowlist."""
         assert client.get("/landing/../backend/app.py").status_code != 200
+
+
+class TestPastaComIndexProprio:
+    """landing/ é uma página à parte: /landing/ não pode cair no app."""
+
+    def test_landing_com_barra_serve_a_landing(self, client):
+        r = client.get("/landing/")
+        assert r.status_code == 200
+        assert "Encontre qualquer arquivo" in r.get_data(as_text=True)
+
+    def test_landing_sem_barra_redireciona(self, client):
+        r = client.get("/landing")
+        assert r.status_code == 308
+        assert r.headers["Location"].endswith("/landing/")
+
+    @pytest.mark.parametrize("rota", ["/backend/", "/docs/", "/.git/"])
+    def test_pasta_privada_nao_vira_pagina(self, client, rota):
+        corpo = client.get(rota).get_data(as_text=True)
+        assert "def api_login" not in corpo
+        assert "DATABASE_URL" not in corpo

@@ -1,0 +1,47 @@
+@startuml Implantacao_SaaS_SearchPlus
+' Diagrama de implantação — Search+ on-line (MVP de SaaS)
+skinparam shadowing false
+skinparam defaultFontName Arial
+skinparam nodeStyle rectangle
+left to right direction
+
+node "Dispositivo do cliente\n(qualquer navegador)" as CLI {
+  artifact "SPA do Search+\n(HTML/CSS/JS)" as SPA
+}
+
+cloud "Cloudflare" as CF {
+  component "HTTPS + túnel\n(*.trycloudflare.com)" as TUN
+}
+
+node "Servidor do Search+\n(hoje: máquina da equipe)" as SRV {
+  component "cloudflared" as CFD
+  component "Flask (app.py)\nAPI REST + modo público" as API
+  component "Worker de análise\n(fila em segundo plano)" as WRK
+  component "Modelos locais\nSBERT + CLIP" as MOD
+  folder "Arquivos enviados\n(uma pasta por usuário)" as ARQ
+}
+
+cloud "Supabase" as SB {
+  database "PostgreSQL + pgvector\n(usuários, índice, coleções)" as DB
+}
+
+cloud "Anthropic" as ANT {
+  component "Claude Haiku 5.5\n(descrição e julgamento)" as CLA
+}
+
+SPA --> TUN : HTTPS
+TUN --> CFD : túnel de saída
+CFD --> API : http://127.0.0.1:5000
+API --> ARQ : POST /api/upload
+API --> WRK : fila
+WRK --> MOD : vetores
+API --> DB : SQL (pool)
+WRK --> DB : grava vetores
+API --> CLA : só na busca
+
+note bottom of SRV
+  Em produção, este nó vira uma máquina na nuvem
+  e "Arquivos enviados" vira um armazenamento de objetos.
+  O resto do desenho não muda.
+end note
+@enduml

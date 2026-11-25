@@ -28,6 +28,7 @@ Referência dos endpoints do backend (`backend/app.py`) para quem está construi
   - [Motor de indexação](#motor-de-indexação)
   - [Conexão com o Claude](#conexão-com-o-claude)
 - [Particularidades que afetam o frontend](#particularidades-que-afetam-o-frontend)
+  - [Modo público](#modo-público)
 
 ---
 
@@ -283,9 +284,11 @@ caracteres: em UTF-8 cada letra acentuada ocupa 2, então "çã" × 40 já estou
 `POST /api/cadastro` é um alias idêntico.
 
 #### `GET /api/check_session`
-→ `200` `{"username": "demo"}` · `401` sem sessão
+→ `200` `{"username": "demo", "modo_publico": false}` · `401` `{"error": "...", "modo_publico": false}` sem sessão
 
-Chame no boot do app para decidir entre tela de login e app.
+Chame no boot do app para decidir entre tela de login e app. `modo_publico`
+vem nas duas respostas porque a tela de login precisa dele antes de alguém
+entrar (ver [Modo público](#modo-público)).
 
 #### `POST /api/logout`
 → `200` `{"status": "ok"}`
@@ -344,11 +347,16 @@ Salva preferências. **Merge parcial** — envie só os campos que mudaram; os d
       "path": "C:\\Users\\Demo\\Imagens",
       "prioridades": ["tudo"],
       "perfil_analise": "fast",
-      "janela_processamento": "always"
+      "janela_processamento": "always",
+      "enviados": false
     }
   ]
 }
 ```
+
+`enviados` é `true` na pasta que recebe os arquivos de `POST /api/upload`.
+Mostre "Enviados pelo navegador" no lugar do `path`, que é um caminho interno
+do servidor.
 
 #### `POST /api/folders`
 ```json
@@ -418,6 +426,31 @@ Erros:
 { "id": 1, "perfil_analise": "deep" }
 ```
 Aceita `id` **ou** `path` para identificar a pasta. Campos alteráveis: `prioridades`, `perfil_analise` (`fast`/`deep`), `janela_processamento`.
+
+#### `POST /api/upload`
+Envio de arquivos pelo navegador — o jeito de adicionar arquivos quando o
+Search+ é aberto por um link e o servidor não enxerga o computador de quem usa.
+
+`multipart/form-data`, um ou mais campos `arquivos` (até 200 por envio):
+
+```js
+const form = new FormData();
+arquivos.forEach(f => form.append('arquivos', f, f.name));
+fetch('/api/upload', { method: 'POST', body: form });  // sem Content-Type: o navegador põe o boundary
+```
+
+→ `200`
+```json
+{ "status": "ok", "enviados": 2, "arquivos": ["cachorro.jpg", "a (2).jpg"], "ignorados": [{"nome": "x.exe", "motivo": "tipo não suportado"}] }
+```
+· `400` nenhum arquivo ou mais de 200 · `401` sem sessão · `413` corpo acima do limite (100 MB por padrão)
+
+Os arquivos vão para uma pasta própria do usuário no servidor, que aparece em
+`GET /api/folders` com o nome "Enviados pelo navegador", e entram direto na
+fila de análise. O nome é reduzido ao nome simples (`../../x.jpg` vira
+`x.jpg`); um nome repetido vira `nome (2).ext` em vez de sobrescrever.
+`arquivos` traz os nomes como ficaram gravados. Mande lotes abaixo de 100 MB:
+é o limite do plano grátis do Cloudflare, que fica na frente no modo público.
 
 ### Lixeira
 
@@ -1359,6 +1392,28 @@ De 1 a 8 segundos na API real, contra ~250ms no mock. Vale um skeleton ou barra 
 ### Paginação
 
 Não existe. `/api/search` devolve no máximo 60 itens e `/api/gallery` devolve tudo de uma vez. Para acervos grandes, virtualize a lista no front.
+
+### Modo público
+
+Com `SEARCHPLUS_MODO_PUBLICO=1` o servidor fica preparado para ser aberto por
+um link na internet (um túnel até a máquina onde roda). Quem entra pelo link
+não pode mexer no disco nem no Windows dessa máquina, então estas rotas
+respondem `403` com `error` explicando o motivo:
+
+| Bloqueado | Por quê |
+|---|---|
+| `POST /api/register`, `POST /api/cadastro` | Cadastro fechado: só entra quem recebeu uma conta |
+| `POST /api/folders`, `GET /api/estimate_time` | Cadastrar `C:\` deixaria ler qualquer arquivo do servidor |
+| `GET /api/choose_folder`, `GET /api/choose_image` | Abririam a janela na tela do servidor |
+| `GET /api/open_location`, `GET /api/open_folder` | Abririam o Explorer do servidor |
+| Exportação e pasta da coleção (`/export`, `/sync`, `PATCH`/`DELETE .../folders`, `/repetir`, `/limpar_sumidos`) | Gravam ou apagam no disco do servidor |
+| `POST /api/claude`, `/api/claude/testar`, `DELETE /api/claude/credencial` | Credencial do Claude da máquina |
+| `/api/debug/*`, `POST /api/clear_cache` | Diagnóstico e manutenção |
+
+Busca, galeria, coleções, favoritos, histórico e lixeira continuam
+funcionando. Para adicionar arquivos, use `POST /api/upload`. O front lê
+`modo_publico` em `/api/check_session` para trocar "Adicionar pasta" por
+"Enviar arquivos" e esconder o cadastro.
 
 ### Recursos degradáveis
 

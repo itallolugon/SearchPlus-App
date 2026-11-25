@@ -813,8 +813,10 @@ window.onload = async () => {
 
     try {
         const res = await fetch(`${API_BASE_URL}/api/check_session`);
+        let userData = {};
+        try { userData = await res.json(); } catch (e) { /* servidor antigo sem corpo */ }
+        aplicarModoPublico(!!userData.modo_publico);
         if (res.ok) {
-            const userData = await res.json();
             loginBemSucedido(userData.username);
         } else {
             document.getElementById('authOverlay').style.display = 'flex';
@@ -898,7 +900,32 @@ async function acompanharPreparoDaBusca() {
 // ==========================================
 // SELETOR E CROPPER DE IMAGEM
 // ==========================================
+// No modo público a janela do Windows abriria na tela do servidor: a foto vem
+// do seletor do próprio navegador e vai direto para o editor de corte.
+function selecionarImagemDoNavegador(inputId) {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.png,.jpg,.jpeg,.gif,.webp,.bmp';
+    input.style.display = 'none';
+    input.addEventListener('change', () => {
+        const arquivo = input.files[0];
+        input.remove();
+        if (!arquivo) return;
+        const leitor = new FileReader();
+        leitor.onload = () => {
+            targetCropInput = inputId;
+            abrirEditorCorte(leitor.result, inputId);
+        };
+        leitor.onerror = () => toastErro('Não foi possível abrir essa imagem.');
+        leitor.readAsDataURL(arquivo);
+    });
+    input.addEventListener('cancel', () => input.remove());
+    document.body.appendChild(input);
+    input.click();
+}
+
 async function selecionarImagemExplorer(inputId) {
+    if (MODO_PUBLICO) return selecionarImagemDoNavegador(inputId);
     try {
         const res = await fetch(`${API_BASE_URL}/api/choose_image`);
         const data = await res.json();
@@ -1181,6 +1208,16 @@ async function verificarOnboarding() {
 }
 
 async function adicionarPastaOnboarding() {
+    if (MODO_PUBLICO) {
+        const btn = document.getElementById('btnObAdicionarPasta');
+        const enviados = await enviarArquivosDoDispositivo(btn);
+        if (btn) btn.textContent = '+ Enviar arquivos do seu dispositivo';
+        if (enviados > 0) {
+            currentConfig.historico_pastas = true;
+            atualizarListaPastasOnboarding();
+        }
+        return;
+    }
     try {
         const res = await fetch(`${API_BASE_URL}/api/choose_folder`);
         const data = await res.json();
@@ -1212,7 +1249,7 @@ async function atualizarListaPastasOnboarding() {
             const p = typeof f === 'string' ? f : f.path;
             const pEsc = p.replace(/'/g, "\\'").replace(/"/g, '&quot;').replace(/\\/g, '\\\\');
             return `<div style="color:var(--telemetry); padding: 5px 0; display:flex; justify-content:center; align-items:center; gap: 10px;">
-                <span>${p}</span>
+                <span>${f.enviados ? ROTULO_PASTA_ENVIOS : p}</span>
                 <span style="cursor:pointer; color:var(--text-secondary); opacity:0.7; font-size:0.9rem;" onclick="removerPastaOnboarding('${pEsc}')" title="Remover pasta"></span>
             </div>`;
         }).join('');
@@ -3031,7 +3068,7 @@ function atualizarListaModalPastas(pastas) {
         info.className = 'folder-info';
         const caminho = document.createElement('span');
         caminho.className = 'folder-path';
-        caminho.textContent = p;
+        caminho.textContent = f.enviados ? ROTULO_PASTA_ENVIOS : p;
         const resumo = document.createElement('span');
         resumo.className = 'folder-resumo';
         resumo.textContent = `${foco} · ${modo} · ${quando}`;
@@ -3213,7 +3250,126 @@ async function carregarPainelNumeros() {
     }
 }
 
+// ==========================================
+// MODO PÚBLICO E ENVIO DE ARQUIVOS PELO NAVEGADOR
+// ==========================================
+// Aberto por um link, o servidor está em outra máquina: "Adicionar pasta"
+// abriria a janela de pastas na tela DELE, não na de quem usa. No modo público
+// os arquivos sobem pelo navegador e o cadastro de contas fica fechado.
+let MODO_PUBLICO = false;
+
+// A pasta onde caem os arquivos enviados é um caminho interno do servidor;
+// para quem enviou, ela é só "o que eu mandei pelo navegador".
+const ROTULO_PASTA_ENVIOS = 'Enviados pelo navegador';
+
+function aplicarModoPublico(ativo) {
+    MODO_PUBLICO = ativo;
+    if (!ativo) return;
+
+    const tabCadastro = document.getElementById('tabRegister');
+    if (tabCadastro) tabCadastro.style.display = 'none';
+
+    const btnModal = document.getElementById('btnAdicionarPasta');
+    if (btnModal) btnModal.textContent = 'Enviar arquivos';
+
+    const btnOb = document.getElementById('btnObAdicionarPasta');
+    if (btnOb) btnOb.textContent = '+ Enviar arquivos do seu dispositivo';
+
+    const subOb = document.querySelector('#onboardingStep1 .ob-sub');
+    if (subOb) subOb.textContent = 'Envie as fotos e os documentos que o Search+ deve analisar. Ele lê o conteúdo dos arquivos, não só o nome.';
+}
+
+const _TIPOS_ACEITOS_ENVIO = [
+    'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp',
+    'pdf', 'docx', 'doc', 'txt', 'odt', 'csv', 'xlsx',
+    'mp4', 'avi', 'mkv', 'mov', 'webm', 'mp3', 'wav', 'ogg', 'm4a', 'flac',
+].map(e => '.' + e).join(',');
+
+// Abaixo dos 100 MB que o Cloudflare aceita por requisição, com folga.
+const _LOTE_ENVIO_BYTES = 40 * 1024 * 1024;
+const _LOTE_ENVIO_ARQUIVOS = 50;
+
+function escolherArquivosDoDispositivo() {
+    return new Promise(resolve => {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.multiple = true;
+        input.accept = _TIPOS_ACEITOS_ENVIO;
+        input.style.display = 'none';
+        const fim = (lista) => { input.remove(); resolve(lista); };
+        input.addEventListener('change', () => fim([...input.files]));
+        input.addEventListener('cancel', () => fim([]));
+        document.body.appendChild(input);
+        input.click();
+    });
+}
+
+function _montarLotesDeEnvio(arquivos) {
+    const lotes = [];
+    let atual = [], bytes = 0;
+    for (const f of arquivos) {
+        if (atual.length && (bytes + f.size > _LOTE_ENVIO_BYTES || atual.length >= _LOTE_ENVIO_ARQUIVOS)) {
+            lotes.push(atual);
+            atual = []; bytes = 0;
+        }
+        atual.push(f); bytes += f.size;
+    }
+    if (atual.length) lotes.push(atual);
+    return lotes;
+}
+
+// Devolve quantos arquivos foram aceitos. Manda em lotes, um de cada vez, e
+// para no primeiro erro: o que já subiu fica, e a mensagem diz o que houve.
+async function enviarArquivosDoDispositivo(btn) {
+    const arquivos = await escolherArquivosDoDispositivo();
+    if (!arquivos.length) return 0;
+
+    let enviados = 0, ignorados = 0;
+    for (const lote of _montarLotesDeEnvio(arquivos)) {
+        if (btn) rotularCom(btn, 'ampulheta', `Enviando ${enviados + ignorados} de ${arquivos.length}...`);
+        const form = new FormData();
+        lote.forEach(f => form.append('arquivos', f, f.name));
+        let res;
+        try {
+            res = await fetch(`${API_BASE_URL}/api/upload`, { method: 'POST', body: form });
+        } catch (e) {
+            toastErro('O envio parou no meio. Confira a internet e tente de novo.');
+            break;
+        }
+        if (!res.ok) {
+            toastErro(await _erroDaResposta(res, 'Não foi possível enviar os arquivos'));
+            break;
+        }
+        const d = await res.json();
+        enviados += d.enviados || 0;
+        ignorados += (d.ignorados || []).length;
+    }
+
+    if (enviados > 0) {
+        toastOk(enviados === 1
+            ? '1 arquivo enviado. A análise já começou.'
+            : `${enviados} arquivos enviados. A análise já começou.`);
+    }
+    if (ignorados > 0) {
+        toastInfo(ignorados === 1
+            ? '1 arquivo ficou de fora: esse tipo de arquivo não é aceito.'
+            : `${ignorados} arquivos ficaram de fora: esse tipo de arquivo não é aceito.`);
+    }
+    if (typeof carregarPainelNumeros === 'function') carregarPainelNumeros();
+    return enviados;
+}
+
 async function adicionarPasta() {
+    if (MODO_PUBLICO) {
+        const btn = document.getElementById('btnAdicionarPasta');
+        const enviados = await enviarArquivosDoDispositivo(btn);
+        btn.textContent = 'Enviar arquivos';
+        if (enviados > 0) {
+            const r = await fetch(`${API_BASE_URL}/api/folders`);
+            if (r.ok) atualizarListaModalPastas((await r.json()).pastas);
+        }
+        return;
+    }
     const btn = document.getElementById('btnAdicionarPasta'); rotularCom(btn, 'ampulheta', 'Abrindo Windows...');
     const res = await fetch(`${API_BASE_URL}/api/choose_folder`); const data = await res.json();
     if (data.status === "sucesso") {
@@ -6720,7 +6876,7 @@ async function configurarPastaDaColecao(colId, nome) {
         const d = await r.json();
         if (d.status === 'cancelado') return 'manual';   // desistiu: sem pasta
         if (d.status !== 'sucesso' || !d.pasta) {
-            toastErro('Não foi possível abrir o seletor de pastas.');
+            toastErro(d.error || 'Não foi possível abrir o seletor de pastas.');
             return 'manual';
         }
         destino = d.pasta;
@@ -6824,7 +6980,7 @@ async function exportarColecao() {
         const d = await r.json();
         if (d.status === 'cancelado') return;          // desistiu: sem erro
         if (d.status !== 'sucesso' || !d.pasta) {
-            toastErro("Não foi possível abrir o seletor de pastas.");
+            toastErro(d.error || "Não foi possível abrir o seletor de pastas.");
             return;
         }
         destino = d.pasta;
